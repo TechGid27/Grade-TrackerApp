@@ -1,0 +1,16 @@
+.logo {
+  filter:brightness(0);
+}
+.full-h{
+  height: 100vh;
+  align-content: center;
+}
+.justify-items-end{
+  justify-items: end;
+}
+
+.scrolled .navbar  .logo ,.scrolled .navbar .navbar-toggler {
+  filter: brightness(100);
+}
+
+

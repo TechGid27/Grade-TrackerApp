@@ -1,0 +1,49 @@
+🎓 Grade Tracker Web Application
+📘 Overview
+
+The Grade Tracker Web App is a full-stack web application designed to help students efficiently track, organize, and analyze their academic performance.
+
+Users can manage their subjects, assignments, and grades in one centralized platform. It provides real-time grade computation, progress visualization, and task management features.
+
+⚙️ Features
+🧮 Grade Management
+
+Add, edit, or delete subjects.
+
+Record grades per task, quiz, or exam.
+
+Automatically computes overall averages and percentages.
+
+🗓️ Task & To-Do Management
+
+Create and manage tasks or assignments for each subject.
+
+Track task progress (Pending, Completed, Due Today).
+
+Color-coded subjects for easy organization.
+
+📊 Dashboard & Analytics
+
+View statistics such as total tasks, completed tasks, and grade trends.
+
+Visual display of current performance using charts or summaries.
+
+👤 User Authentication
+
+Secure login system with session handling.
+
+User data stored and retrieved from the database.
+
+💾 Database Management
+
+Relational data stored in MySQL.
+
+Tables include:
+
+users
+
+subjects
+
+todos (or tasks)
+
+grades
