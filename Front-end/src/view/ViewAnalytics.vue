@@ -1,182 +1,228 @@
 <script setup>
-import { ref, onMounted, computed } from "vue";
-import ChartComponent from "./components/ChartsComponent.vue";
+import { ref, computed, onMounted } from "vue";
 import NavigationChild from "./components/NavigationChild.vue";
 import SubNavigation from "./components/SubNavigation.vue";
-
 import { useSubjects } from "../composables/subjects.js";
-import { useAssessment } from "../composables/assessment.js";
 import { useTodos } from "@/composables/task.js";
+import { useAssessment } from "@/composables/assessment";
+// import ChartComponent from "@/components/ChartComponent.vue
+import ChartsComponent from "./components/ChartsComponent.vue";
 
 const token = localStorage.getItem("token");
 
-// composables
+// ---------------------- Composables ----------------------
 const { subjects, getSubjects } = useSubjects(token);
-const { getAssessment } = useAssessment(token);
-const { getTodos } = useTodos(token);
+const { todos, getTodos } = useTodos(token);
+const { Assessment, getAssessment } = useAssessment(token);
 
-// chart data
-const barData = ref(null);
-const lineData = ref(null);
-const pieData = ref(null);
-const areaData = ref(null);
-
-const barOptions = ref({
-  responsive: true,
-  plugins: { legend: { position: "bottom" }, title: { display: true, text: "Current vs Target Performance" } },
-  scales: { y: { beginAtZero: true, max: 100 } },
-});
-
-const lineOptions = ref({
-  responsive: true,
-  plugins: { legend: { position: "bottom" }, title: { display: true, text: "Grade Trends Over Time" } },
-});
-
-const pieOptions = ref({
-  responsive: true,
-  plugins: { legend: { position: "right" }, title: { display: true, text: "Assessment Type Distribution" } },
-});
-
-const areaOptions = ref({
-  responsive: true,
-  plugins: { legend: { position: "bottom" }, title: { display: true, text: "Task Completion Trends" } },
-});
-
-// UI data
-const totalAssessments = ref(0);
-// const studyStreak = ref(12); // static placeholder
 const loading = ref(true);
 
-// Computed: Ranked subjects
-const rankedSubjects = computed(() => {
-  if (!subjects.value || !Array.isArray(subjects.value)) return [];
-  return [...subjects.value].sort((a, b) => (b.current_grade || 0) - (a.current_grade || 0));
+// ---------------------- Task Streak ----------------------
+const taskStreak = computed(() => {
+  if (!Assessment.value?.length) return 0;
+
+  // Group assessments by ISO week
+  const weeks = [...new Set(
+    Assessment.value
+      .filter(a => a.date_taken)
+      .map(a => {
+        const d = new Date(a.date_taken);
+        const oneJan = new Date(d.getFullYear(), 0, 1);
+        const week = Math.ceil((((d - oneJan) / 86400000 + oneJan.getDay() + 1) / 7));
+        return `${d.getFullYear()}-W${week.toString().padStart(2,"0")}`;
+      })
+  )].sort();
+
+  // Count consecutive weeks from latest week backwards
+  let streak = 0;
+  for (let i = weeks.length - 1; i > 0; i--) {
+    const [y1, w1] = weeks[i].split('-W').map(Number);
+    const [y2, w2] = weeks[i - 1].split('-W').map(Number);
+    if ((y1 === y2 && w1 - w2 === 1) || (y1 - y2 === 1 && w2 === 52 && w1 === 1)) streak++;
+    else break;
+  }
+
+  return streak + 1; // include current week
 });
 
-// Helpers
-function randomColor() {
-  const colors = ["#3b82f6", "#a855f7", "#f59e0b", "#ef4444", "#10b981"];
-  return colors[Math.floor(Math.random() * colors.length)];
-}
+// ---------------------- Ranked Subjects ----------------------
+const rankedSubjects = computed(() =>
+  Array.isArray(subjects.value)
+    ? [...subjects.value].sort((a, b) => (b.current_grade || 0) - (a.current_grade || 0))
+    : []
+);
 
-function groupBy(arr, key) {
-  return arr.reduce((acc, item) => {
-    (acc[item[key]] = acc[item[key]] || []).push(item);
-    return acc;
-  }, {});
-}
+// ---------------------- Total Assessments ----------------------
+const totalAssessments = computed(() =>
+  subjects.value?.reduce((acc, s) => acc + (s.assessments?.length || 0), 0) || 0
+);
 
-function groupTasksByWeek(tasks) {
-  const result = {};
-  tasks.forEach((t) => {
-    const week = t.week || "Week ?";
-    if (!result[week]) result[week] = { created: 0, completed: 0 };
-    result[week].created++;
-    if (t.completed) result[week].completed++;
+// ---------------------- Improvement Percentage ----------------------
+const improvementPercentage = computed(() => {
+  if (!Array.isArray(subjects.value) || !subjects.value.length) return 0;
+
+  let totalChange = 0;
+  let countedSubjects = 0;
+
+  subjects.value.forEach(subject => {
+    const grades = subject.assessments
+      ?.filter(a => a.grade != null)
+      .sort((a, b) => new Date(a.date_taken) - new Date(b.date_taken)) || [];
+
+    if (grades.length >= 2) {
+      const first = Number(grades[0].grade);
+      const last = Number(grades[grades.length - 1].grade);
+      if (!isNaN(first) && !isNaN(last)) {
+        totalChange += last - first;
+        countedSubjects++;
+      }
+    }
   });
-  return result;
-}
 
-// Fetch all data
+  return countedSubjects ? (totalChange / countedSubjects).toFixed(1) : 0;
+});
+
+// ----------------- Line Chart: Grade Trends -----------------
+const lineData = computed(() => {
+  if (!subjects.value?.length) return null;
+
+  const labelsSet = new Set();
+  const datasets = subjects.value.map(subject => {
+    const data = (subject.assessments || [])
+      .sort((a, b) => new Date(a.date_taken) - new Date(b.date_taken))
+      .map(a => {
+        const date = new Date(a.date_taken);
+        const label = date.toLocaleDateString("en-US", { month: "short", day: "numeric" }); // "Nov 5"
+        labelsSet.add(label);
+        return Number(a.grade);
+      });
+    return {
+      label: subject.name,
+      data,
+      borderColor: subject.color || "#007bff",
+      backgroundColor: subject.color || "#007bff",
+      fill: false,
+    };
+  });
+
+  const labels = Array.from(labelsSet).sort((a, b) => new Date(a) - new Date(b));
+  return { labels, datasets };
+});
+
+const lineOptions = {
+  responsive: true,
+  plugins: { legend: { position: "top" } },
+  scales: { y: { beginAtZero: true, max: 100 } },
+};
+
+// ----------------- Bar Chart: Subject Performance -----------------
+const barData = computed(() => {
+  if (!subjects.value?.length) return null;
+
+  return {
+    labels: subjects.value.map(s => s.name),
+    datasets: [
+      {
+        label: "Current Grade",
+        data: subjects.value.map(s => s.current_grade || 0),
+        backgroundColor: subjects.value.map(s => s.color || "#007bff"),
+      },
+      {
+        label: "Target Grade",
+        data: subjects.value.map(s => Number(s.target_grade) || 0),
+        backgroundColor: "rgba(0,0,0,0.1)",
+      },
+    ],
+  };
+});
+
+const barOptions = {
+  responsive: true,
+  plugins: { legend: { position: "top" } },
+  scales: { y: { beginAtZero: true, max: 100 } },
+};
+
+// ----------------- Pie Chart: Assessment Type Distribution -----------------
+const pieData = computed(() => {
+  if (!Assessment.value?.length) return null;
+
+  const typeCounts = {};
+  Assessment.value.forEach(a => {
+    typeCounts[a.type] = (typeCounts[a.type] || 0) + 1;
+  });
+
+  return {
+    labels: Object.keys(typeCounts),
+    datasets: [
+      {
+        data: Object.values(typeCounts),
+        backgroundColor: ["#007bff", "#28a745", "#ffc107", "#dc3545"],
+      },
+    ],
+  };
+});
+
+const pieOptions = { responsive: true, plugins: { legend: { position: "right" } } };
+
+// ----------------- Area Chart: Task Completion Trends -----------------
+const areaData = computed(() => {
+  if (!todos.value?.length) return null;
+
+  const weeksMap = {};
+  todos.value.forEach(todo => {
+    if (!todo.due_date) return;
+    const d = new Date(todo.due_date);
+    const monthLabel = d.toLocaleDateString("en-US", { month: "short", day: "numeric" }); // "Nov 5"
+    if (!weeksMap[monthLabel]) weeksMap[monthLabel] = { created: 0, completed: 0 };
+    weeksMap[monthLabel].created += 1;
+    if (todo.completed) weeksMap[monthLabel].completed += 1;
+  });
+
+  const sortedWeeks = Object.keys(weeksMap).sort((a, b) => new Date(a) - new Date(b));
+
+  return {
+    labels: sortedWeeks,
+    datasets: [
+      {
+        label: "Created",
+        data: sortedWeeks.map(w => weeksMap[w].created),
+        borderColor: "#007bff",
+        backgroundColor: "rgba(0,123,255,0.3)",
+        fill: true,
+      },
+      {
+        label: "Completed",
+        data: sortedWeeks.map(w => weeksMap[w].completed),
+        borderColor: "#28a745",
+        backgroundColor: "rgba(40,167,69,0.3)",
+        fill: true,
+      },
+    ],
+  };
+});
+
+const areaOptions = {
+  responsive: true,
+  plugins: { legend: { position: "top" } },
+  scales: { y: { beginAtZero: true } },
+};
+
+// ---------------------- Fetch Data ----------------------
 onMounted(async () => {
+  loading.value = true;
   try {
-    loading.value = true;
-
-    const [subjectRes, assessmentRes, taskRes] = await Promise.all([
-      getSubjects().catch(() => ({ value: [] })),
-      getAssessment().catch(() => ({ data: [] })),
-      getTodos().catch(() => ({ data: [] })),
-    ]);
-
-    const subs = subjectRes?.value || [];
-    const assessments = assessmentRes?.data || [];
-    const tasks = taskRes?.data || [];
-
-    totalAssessments.value = assessments.length;
-
-    // Bar chart
-    barData.value = {
-      labels: subs.map((s) => s.name || "Unknown"),
-      datasets: [
-        { label: "Current Grade", data: subs.map((s) => s.current_grade ?? 0), backgroundColor: "#3b82f6" },
-        { label: "Target Grade", data: subs.map((s) => s.target_grade ?? 0), backgroundColor: "#a855f7" },
-      ],
-    };
-  const allDates = Array.from(new Set(subs.flatMap(s => s.weekly_grades?.map(g => g.date) || [])))
-    .sort((a, b) => new Date(a) - new Date(b));
-    // Line chart
-    lineData.value = {
-      labels: allDates,
-      datasets: subs.map((s) => {
-        const gradesByDate = allDates.map(date => {
-          const gradeObj = s.weekly_grades?.find(g => g.date === date);
-          return gradeObj ? Number(gradeObj.grade) : 0; // fill missing dates with 0
-        });
-        return {
-          label: s.name || "Unknown",
-          data: gradesByDate,
-          borderColor: randomColor(),
-          fill: false,
-        };
-      }),
-    };
-
-    // Pie chart
-    const grouped = groupBy(assessments, "type");
-    pieData.value = {
-      labels: Object.keys(grouped),
-      datasets: [{ data: Object.values(grouped).map((arr) => arr.length), backgroundColor: ["#f87171","#60a5fa","#34d399","#fbbf24","#a855f7"] }],
-    };
-
-    // Area chart
-    const weekly = groupTasksByWeek(tasks);
-    areaData.value = {
-      labels: Object.keys(weekly),
-      datasets: [
-        { label: "Created Tasks", data: Object.values(weekly).map((w) => w.created ?? 0), fill: true, backgroundColor: "rgba(34,197,94,0.5)", borderColor: "green" },
-        { label: "Completed Tasks", data: Object.values(weekly).map((w) => w.completed ?? 0), fill: true, backgroundColor: "rgba(59,130,246,0.5)", borderColor: "blue" },
-      ],
-    };
+    await Promise.all([getSubjects(), getTodos(), getAssessment()]);
   } catch (err) {
-    console.error("Error fetching analytics data:", err);
+    console.error("Error loading data:", err);
   } finally {
     loading.value = false;
   }
 });
-
-
-const improvementPercentage = computed(() => {
-  if (!subjects.value || subjects.value.length === 0) return 0;
-
-  let totalChange = 0;
-  subjects.value.forEach((s) => {
-    if (s.weekly_grades?.length >= 2) {
-      const first = s.weekly_grades[0] || 0;
-      const last = s.weekly_grades[s.weekly_grades.length - 1] || 0;
-      totalChange += last - first;
-    }
-  });
-
-  return subjects.value.length > 0 ? (totalChange / subjects.value.length).toFixed(1) : 0;
-});
-
-// Compute continuous task completion streak
-const taskStreak = computed(() => {
-  if (!areaData.value) return 0;
-
-  const completedWeeks = Object.values(areaData.value.datasets[1].data); // Completed Tasks per week
-  let streak = 0;
-  // Count consecutive non-zero completions from last week backward
-  for (let i = completedWeeks.length - 1; i >= 0; i--) {
-    if (completedWeeks[i] > 0) streak++;
-    else break;
-  }
-  return streak;
-});
 </script>
 
+
+
 <template>
-  <!-- Loading Overlay -->
   <div v-if="loading" class="bg-black bg-opacity-50 loading-screen d-flex flex-column gap-2">
     <div class="spinner-border text-primary" role="status"></div>
     <div class="text-white text-lg font-semibold animate-pulse">Loading analytics data...</div>
@@ -200,8 +246,8 @@ const taskStreak = computed(() => {
           <div class="row justify-content-around py-3 rounded-4 border align-items-center bg-gradient text-white shadow-sm">
             <div class="col-1 text-center"><i class="ri-line-chart-line fs-2"></i></div>
             <div class="col text-black">
-              <h5 class="fw-semibold mb-1">
-                {{ improvementPercentage }}% Average Improvement
+             <h5 class="fw-semibold mb-1">
+                {{ improvementPercentage || 0 }}% Average Improvement
               </h5>
               <p class="mb-0 small">
                 Your tasks have been completed for <strong>{{ taskStreak }}</strong> consecutive weeks
@@ -254,7 +300,6 @@ const taskStreak = computed(() => {
     </div>
   </div>
 
-  <!-- Charts Section -->
   <div class="container py-4">
     <div class="px-2 row g-4 justify-content-center align-items-stretch gap-3">
      <div class="col-lg-6 shadow rounded-4 border p-4 bg-white">
@@ -262,7 +307,7 @@ const taskStreak = computed(() => {
         <p class="text-muted small">Track your academic progress across subjects</p>
 
         <div v-if="lineData && lineData.datasets.some(ds => ds.data.some(val => val > 0))">
-          <ChartComponent type="line" :chart-data="lineData" :chart-options="lineOptions" />
+          <ChartsComponent type="line" :chart-data="lineData" :chart-options="lineOptions" />
           </div>
           <p v-else class="text-center text-muted fst-italic">
             Not enough data to display grade trends.
@@ -274,7 +319,7 @@ const taskStreak = computed(() => {
           <p class="text-muted small">Compare current vs target grades</p>
 
           <div v-if="barData && barData.datasets.some(ds => ds.data.some(val => val > 0))">
-            <ChartComponent type="bar" :chart-data="barData" :chart-options="barOptions" />
+            <ChartsComponent type="bar" :chart-data="barData" :chart-options="barOptions" />
           </div>
           <p v-else class="text-center text-muted fst-italic">
             Not enough data to display subject performance.
@@ -282,26 +327,25 @@ const taskStreak = computed(() => {
         </div>
     </div>
     <div class="px-2 row g-4 mt-4 justify-content-center gap-3">
-      <!-- Assessment Type Distribution -->
+
       <div class="col-lg-6 shadow rounded-4 border p-4 bg-white">
         <h4 class="fw-semibold">Assessment Type Distribution</h4>
         <p class="text-muted small">Breakdown of your recorded assessments</p>
 
         <div v-if="pieData && pieData.datasets[0].data.some(val => val > 0)">
-          <ChartComponent type="pie" :chart-data="pieData" :chart-options="pieOptions" />
+          <ChartsComponent type="pie" :chart-data="pieData" :chart-options="pieOptions" />
         </div>
         <p v-else class="text-center text-muted fst-italic">
           Not enough data to display assessment distribution.
         </p>
       </div>
 
-      <!-- Task Completion Trends -->
       <div class="col-lg-5 shadow rounded-4 border p-4 bg-white">
         <h4 class="fw-semibold">Task Completion Trends</h4>
         <p class="text-muted small">Weekly task creation vs completion</p>
 
         <div v-if="areaData && areaData.datasets[0].data.some(val => val > 0 || areaData.datasets[1].data.some(v => v > 0))">
-          <ChartComponent type="line" :chart-data="areaData" :chart-options="areaOptions" />
+          <ChartsComponent type="line" :chart-data="areaData" :chart-options="areaOptions" />
         </div>
         <p v-else class="text-center text-muted fst-italic">
           Not enough data to display task completion trends.

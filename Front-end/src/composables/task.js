@@ -32,18 +32,14 @@ export function useTodos(token) {
       loading.value = false;
     }
   };
-
-  // GET all todos
   const getTodos = async () => {
     const data = await fetchRequest(API_URL);
     if (!data) return;
 
-    todos.value = data.todos ?? data; // adjust based on API response
+    todos.value = data.todos ?? data;
     totalTodos.value = data.total_todos ?? todos.value.length;
-    console.log("Fetched Todos:", todos.value);
   };
 
-  // POST - add new todo
   const addTodo = async (todo) => {
     const data = await fetchRequest(API_URL, {
       method: "POST",
@@ -52,8 +48,6 @@ export function useTodos(token) {
     if (data) await getTodos();
     return data;
   };
-
-  // PUT - update todo
 
   const updateTodo = async (todo) => {
     const data = await fetchRequest(`${API_URL}/${todo.id}`, {
@@ -64,7 +58,6 @@ export function useTodos(token) {
     return data;
   };
 
-  // DELETE - remove todo
   const deleteTodo = async (id) => {
     const data = await fetchRequest(`${API_URL}/${id}`, {
       method: "DELETE",

@@ -61,7 +61,7 @@
   />
 
   <!-- Loading -->
-  <div v-if="loading" class="mt-3 text-center loading-customized">
+  <div v-if="loading" class="text-center loading-customized">
     <div class="spinner-border text-primary" role="status">
       <span class="visually-hidden">Loading...</span>
     </div>
@@ -147,17 +147,8 @@
     </div>
   </div>
 
-  <!-- Add / Edit Modal -->
   <AddUpdateComponent ref="subjectModal" @add="handleAdd" />
 
-  <!-- Floating Add Button -->
-  <button
-    class="btn btn-primary fab"
-    title="Add Subject"
-    @click="subjectModal.openForAdd('subject')"
-  >
-    <i class="ri-add-line fs-3"></i>
-  </button>
 </template>
 
 <style scoped>
@@ -183,6 +174,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  z-index: 1000;
 }
 
 /* Card design */

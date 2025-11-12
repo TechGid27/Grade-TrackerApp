@@ -14,7 +14,7 @@ const allTodos = computed(() => todos.value);
 
 const todoCounts = computed(() => {
   const all = allTodos.value;
-  const today = new Date().toISOString().split("T")[0]; // ✅ Add this line
+  const today = new Date().toISOString().split("T")[0]; 
 
   return {
     All: all.length,
@@ -29,6 +29,31 @@ const todoCounts = computed(() => {
   };
 });
 
+const studyStreak = computed(() => {
+  if (!allTodos.value.length) return 0;
+
+  const today = new Date();
+  let streak = 0;
+
+  // Sort todos by due_date descending
+  const sortedTodos = [...allTodos.value]
+    .filter(t => t.completed && t.due_date)
+    .sort((a, b) => new Date(b.due_date) - new Date(a.due_date));
+
+  for (let i = 0; i < sortedTodos.length; i++) {
+    const todoDate = new Date(sortedTodos[i].due_date);
+
+    // Check if this todo is exactly streak days behind today
+    const diffDays = Math.floor((today - todoDate) / (1000 * 60 * 60 * 24));
+    if (diffDays === streak) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+
+  return streak;
+});
 
 // ---------- Helpers ----------
 const safeWeightedAverage = (arr, valueFn, weightFn) => {
@@ -49,6 +74,13 @@ const safeWeightedAverage = (arr, valueFn, weightFn) => {
 const totalAssessments = computed(() =>
   subjects.value.reduce((acc, s) => acc + (s.assessments?.length || 0), 0)
 );
+
+
+const taskCompletionPercentage = computed(() => {
+  if (!todoCounts.value.All) return 0;
+  return Math.round((todoCounts.value.Completed / todoCounts.value.All) * 100);
+});
+
 
 const percentageToGPA = (percent) => {
   if (percent >= 90) return 1.0;
@@ -114,7 +146,8 @@ onMounted(getSubjects);
       </div>
     </div>
   </div>
-  <div v-if="route.name == 'Analytics'" class="stats-container">
+
+   <div v-if="route.name === 'Analytics'" class="stats-container">
     <!-- 🎓 Overall GPA -->
     <div class="stat-card gradient-indigo">
       <div class="stat-header">
@@ -122,7 +155,7 @@ onMounted(getSubjects);
         <i class="ri-donut-chart-line"></i>
       </div>
       <div class="stat-body">
-        <h4>4</h4>
+        <h4>{{ dashboardStats.overallGPA }}</h4>
         <p>Currently Tracking</p>
       </div>
     </div>
@@ -134,12 +167,12 @@ onMounted(getSubjects);
         <i class="ri-calendar-line"></i>
       </div>
       <div class="stat-body">
-        <h4>78%</h4>
+        <h4>{{ taskCompletionPercentage }}%</h4>
         <div class="progress mt-3" role="progressbar"
-          aria-valuenow="78" aria-valuemin="0" aria-valuemax="100"
+          aria-valuenow="taskCompletionPercentage" aria-valuemin="0" aria-valuemax="100"
           style="height: 10px; background: rgba(255,255,255,0.25); border-radius: 6px;">
           <div class="progress-bar"
-            style="width: 78%; background: #fff; border-radius: 6px;"></div>
+            :style="{ width: taskCompletionPercentage + '%', background: '#fff', borderRadius: '6px' }"></div>
         </div>
         <p class="mt-2">Completed tasks</p>
       </div>
@@ -152,7 +185,7 @@ onMounted(getSubjects);
         <i class="ri-award-line"></i>
       </div>
       <div class="stat-body">
-        <h4>4 / 4</h4>
+        <h4>{{ aboveTarget }} / {{ dashboardStats.activeSubjects }}</h4>
         <p>Subjects above target</p>
       </div>
     </div>
@@ -164,11 +197,12 @@ onMounted(getSubjects);
         <i class="ri-book-open-line"></i>
       </div>
       <div class="stat-body">
-        <h4>12</h4>
+        <h4>{{ studyStreak }}</h4>
         <p>Days consecutive</p>
       </div>
     </div>
   </div>
+
   <div v-else-if="route.name == 'Subjects'" class="stats-container">
     <div class="stat-card gradient-blue">
       <div class="stat-header">

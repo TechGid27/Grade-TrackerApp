@@ -21,7 +21,6 @@ export function useSubjects(token) {
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
-      console.log("Fetched subjects:", data);
       subjects.value = data.subjects ?? data;
       totalSubjects.value = data.total_subjects;
 

@@ -31,7 +31,7 @@
           <!-- Quick Links Card -->
           <div class="col-md-4">
             <div class="info-card p-4 rounded-4 shadow">
-              <h6 class="fw-bold highlight-text">About</h6>
+              <router-link to="/about" class="fw-bold highlight-text">About</router-link>
               <hr />
               <p><a href="#!" class="footer-link">About the App</a></p>
               <p><a href="#!" class="footer-link">Who Developed?</a></p>

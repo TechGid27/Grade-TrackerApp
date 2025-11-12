@@ -39,6 +39,8 @@ export function useAssessment(token) {
     totalAssessment.value = data.total_Assessment ?? 0;
     console.log("Fetched Assessment:", Assessment.value);
   };
+
+  
   const addAssessment = async (subject) => {
     const data = await fetchRequest(API_URL, {
       method: "POST",

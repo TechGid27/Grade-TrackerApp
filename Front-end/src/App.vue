@@ -2,7 +2,7 @@
 import HeaderComponent from '@/view/components/HeaderComponent.vue'
 import FooterComponent from '@/view/components/FooterComponent.vue'
 
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { useRoute } from 'vue-router';
 
 const route = useRoute();
@@ -21,9 +21,12 @@ onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll);
 });
 
-const isLoggedIn = computed(() => {
-  return !!localStorage.getItem('token'); // true if token exists
-});
+const isLoggedIn = ref(!!localStorage.getItem('token'));
+
+// window.addEventListener('storage', () => {
+//   isLoggedIn.value = !!localStorage.getItem('token');
+// });
+
 
 </script>
 
@@ -35,7 +38,7 @@ const isLoggedIn = computed(() => {
             class="customized-header"
             :class="{ 'scrolled': isScrolled }"
           >
-            <HeaderComponent />
+            <HeaderComponent v-model:is-logged-in="isLoggedIn" />
       </header>
     </section>
 

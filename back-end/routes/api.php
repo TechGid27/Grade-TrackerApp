@@ -21,7 +21,6 @@ use App\Http\Controllers\TodoController;
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
 
-// 🔹 Protected Routes (require Sanctum Token)
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/protected-route', [ProtectedController::class, 'index']);
 
