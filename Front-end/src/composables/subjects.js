@@ -1,17 +1,50 @@
-import { ref } from "vue";
+import { ref, computed } from "vue"; // <-- Import computed
 
-  const subjects = ref([]);
-  const loading = ref(false);
-  const error = ref(null);
+// Reactive state for the composable
+const subjects = ref([]);
+const loading = ref(false);
+const error = ref(null);
+
+const calculateQuarterGrade = (assessments, quarterType) => {
+    const quarterAssessments = assessments.filter(a => a.type_quarter === quarterType);
+
+    if (quarterAssessments.length === 0) return 0;
+
+    // Ensure we parse the string scores and total_items to numbers
+    const totalScore = quarterAssessments.reduce((sum, a) => sum + parseFloat(a.score), 0);
+    const totalItems = quarterAssessments.reduce((sum, a) => sum + parseFloat(a.total_items), 0);
+
+    // Prevent division by zero
+    if (totalItems === 0) return 0;
+
+    // Calculate percentage grade, rounded to two decimal places
+    return Math.round((totalScore / totalItems) * 100 * 100) / 100;
+};
 
 
 export function useSubjects(token) {
 
+  // New computed property to hold subjects with calculated grades
+  const subjectsWithCalculatedGrades = computed(() => {
+    if (!subjects.value?.length) return [];
 
- const getSubjects = async () => {
+    return subjects.value.map(subject => {
+
+        const previous_quarter_grade = calculateQuarterGrade(subject.assessments, 'preliminary');
+        const current_quarter_grade = calculateQuarterGrade(subject.assessments, 'midterm');
+
+        return {
+            ...subject, // Keep all existing subject properties
+            previous_quarter_grade: previous_quarter_grade,
+            current_quarter_grade: current_quarter_grade,
+        };
+    });
+  });
+
+
+  const getSubjects = async () => {
     loading.value = true;
     error.value = null;
-    const totalSubjects = ref(0);
     try {
       const res = await fetch("http://localhost:8000/api/subjects", {
         headers: {
@@ -21,12 +54,16 @@ export function useSubjects(token) {
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
-      subjects.value = data.subjects ?? data;
-      totalSubjects.value = data.total_subjects;
+
+      // Store the raw subjects data including assessments
+      subjects.value = data["All subjects"];
+
+      console.log(data);
 
     } catch (err) {
       console.error("Fetch Error:", err.message);
       error.value = err.message;
+      subjects.value = []; // Clear subjects on error
     } finally {
       loading.value = false;
     }
@@ -49,6 +86,7 @@ export function useSubjects(token) {
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to add subject");
+      console.log("success fully added");
 
       await getSubjects(); // refresh list
       return data;
@@ -116,5 +154,13 @@ export function useSubjects(token) {
     }
   };
 
-  return { subjects, loading, error, getSubjects, addSubject, updateSubject, deleteSubject };
+  return {
+    subjects: subjectsWithCalculatedGrades, // <-- EXPORT THE COMPUTED GRADES
+    loading,
+    error,
+    getSubjects,
+    addSubject,
+    updateSubject,
+    deleteSubject
+  };
 }

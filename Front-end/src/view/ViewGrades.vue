@@ -1,5 +1,4 @@
 <script setup>
-// import NavigationComponent from './components/NavigationComponent.vue';
 import NavigationChild from './components/NavigationChild.vue';
 import SubNavigation from './components/SubNavigation.vue';
 import FilterComponent from './components/FilterComponent.vue';
@@ -9,362 +8,406 @@ import { Modal } from 'bootstrap';
 import { useAssessment } from "../composables/assessment.js";
 import { useSubjects } from "../composables/subjects.js";
 
+// Global data and composables
 const token = localStorage.getItem("token");
-const { loading, deleteAssessment } = useAssessment(token);
-const { subjects, getSubjects } = useSubjects(token);
+const assessmentApi = useAssessment(token);
+const subjectsApi = useSubjects(token);
 
+// --- State ---
 const selectedSubject = ref(null);
-
 const subjectModalRef = ref(null);
 let bsSubjectModal = null;
-
 const assessmentModalRef = ref(null);
 
 const searchQueryGrade = ref("");
 const sortOptionGrade = ref("name");
-
 const isEditing = ref(false);
 
-const form = reactive({
-  id: null,
-  subject_id: null,
-  name: '',
-  type_assessment: '',
-  grade: 0,
-  max_grade: 0,
-  weight: 0,
-  date_taken: ''
-});
+// State for modal filtering
+const activityFilter = ref('all');
+const quarterFilter = ref('all');
+const quarterGradeData = ref(null); // State kept, but no longer used for fetching aggregate grades
 
-const openSubjectModal = (subject) => {
-  selectedSubject.value = subject;
-  bsSubjectModal?.show();
+
+// Initial form structure for adding/editing an assessment
+const initialFormState = {
+    id: null,
+    subject_id: null,
+    name: '',
+    type_assessment: '',
+    grade: 0,
+    max_grade: 0,
+    weight: 0,
+    date_taken: ''
+};
+const form = reactive({ ...initialFormState });
+
+/**
+ * Resets the assessment form to its initial state.
+ */
+const resetForm = () => {
+    Object.assign(form, initialFormState);
+    isEditing.value = false;
 };
 
-const openAssessmentEdit = (assessment) => {
-  if (!assessment) return;
-
-  isEditing.value = true;
-  Object.assign(form, {
-    id: assessment.id,
-    subject_id: assessment.subject_id,
-    name: assessment.name,
-    type_assessment: assessment.type_assessment ?? assessment.type,
-    grade: assessment.grade,
-    max_grade: assessment.max_grade,
-    weight: assessment.weight,
-    date_taken: assessment.date_taken,
-  });
-
-  bsSubjectModal?.hide();
-
-  setTimeout(() => {
-    assessmentModalRef.value?.openForEdit("assessment", form);
-  }, 300);
-};
-
-const closeSubjectModal = async () => {
-  bsSubjectModal?.hide();
-  await getSubjects();
-};
-
-const averageGrade = (assessments) => {
-  if (!assessments?.length) return 0;
-
-  let total = 0, totalWeight = 0;
-  assessments.forEach(a => {
-    const percent = (a.grade / a.max_grade) * 100;
-    const w = parseFloat(a.weight) || 1;
-    total += percent * w;
-    totalWeight += w;
-     console.log("weights ",w);
-  });
-
-  return (total / totalWeight).toFixed(1);
-};
+// ===================================================================
+// NOTE: The fetchAggregatedGrade function and the watch block are removed
+// as requested, to rely solely on local filtering and remove grade computation logic.
+// ===================================================================
 
 
-const handleDelete = async (id) => {
-  if (!confirm("Are you sure you want to delete this assessment?")) return;
-
-  try {
-    const success = await deleteAssessment(id);
-    if (!success) throw new Error("Delete failed");
-
-    if (!selectedSubject.value) return;
-
-    selectedSubject.value.assessments = selectedSubject.value.assessments.filter(a => a.id !== id);
-
-    const count = selectedSubject.value.assessments.length;
-    const total = selectedSubject.value.assessments.reduce((acc, a) => acc + (a.grade / a.max_grade) * 100, 0);
-    selectedSubject.value.current_grade = count ? total / count : 0;
-    selectedSubject.value.assessments_count = count;
-
-    const index = subjects.value.findIndex(s => s.id === selectedSubject.value.id);
-    if (index !== -1) subjects.value[index] = { ...selectedSubject.value };
-  } catch (error) {
-    console.error(error);
-    alert("Something went wrong while deleting the assessment.");
-  }
-};
-
-const filteredSubjects = computed(() => {
-  if (!subjects.value) return [];
-
-  let result = subjects.value.filter(sub =>
-    sub.name.toLowerCase().includes(searchQueryGrade.value.toLowerCase())
-  );
-
-  switch (sortOptionGrade.value) {
-    case "1":
-      return result.filter(sub =>
-        sub.assessments.some(a => a.type.toLowerCase() === "quiz")
-      );
-    case "2":
-      return result.filter(sub =>
-        sub.assessments.some(a => a.type.toLowerCase() === "test")
-      );
-    case "3":
-      return result.filter(sub =>
-        sub.assessments.some(a => a.type.toLowerCase() === "exam")
-      );
-    case "4":
-      return result.filter(sub =>
-        sub.assessments.some(a => a.type.toLowerCase() === "assignment")
-      );
-    case "5":
-      return result.filter(sub =>
-        sub.assessments.some(a => a.type.toLowerCase() === "project")
-      );
-    default:
-      return result;
-  }
-});
+// --- Lifecycle and Initialization ---
 
 onMounted(async () => {
-  await getSubjects();
-  if (subjectModalRef.value) bsSubjectModal = new Modal(subjectModalRef.value);
+    // 1. Initial data fetch
+    await subjectsApi.getSubjects();
+
+    // 2. Initialize Bootstrap Modal
+    if (subjectModalRef.value) {
+        bsSubjectModal = new Modal(subjectModalRef.value);
+
+        // Listen for the Bootstrap modal 'hidden' event for cleanup/refresh
+        subjectModalRef.value.addEventListener('hidden.bs.modal', async () => {
+            selectedSubject.value = null;
+            // RESET: Reset all modal filters and data when closing
+            activityFilter.value = 'all';
+            quarterFilter.value = 'all';
+            quarterGradeData.value = null; // Still good practice to reset this
+            await subjectsApi.getSubjects();
+        });
+    }
 });
+
+// The watch block triggering fetchAggregatedGrade is REMOVED.
+
+const getSubjectInitial = (name) => {
+    if (!name || typeof name !== 'string' || name.length === 0) {
+        return '?';
+    }
+    return name.charAt(0).toUpperCase();
+};
+
+// The averageGrade function is REMOVED.
+
+
+// --- Computed Properties ---
+
+/**
+ * Computed property to filter and sort the subjects list based on user input.
+ */
+const filteredSubjects = computed(() => {
+    if (!subjectsApi.subjects.value) return [];
+
+    let result = subjectsApi.subjects.value;
+
+    // 1. **Default/Static Filter:** Only show subjects that have at least one assessment recorded.
+    result = result.filter(sub => Array.isArray(sub.assessments) && sub.assessments.length > 0);
+
+    // 2. **Search Filter:** Filter by subject name (case-insensitive)
+    if (searchQueryGrade.value) {
+        const nameKey = result[0]?.name ? 'name' : 'subject_name';
+        result = result.filter(sub =>
+            (sub[nameKey] || '').toLowerCase().includes(searchQueryGrade.value.toLowerCase())
+        );
+    }
+
+    // 3. **Assessment Type Filter (Sort Option):**
+    const typeMap = {
+        "quiz": "quiz", "test": "test", "exam": "exam", "assignment": "assignment", "project": "project",
+    };
+    const targetType = typeMap[sortOptionGrade.value];
+
+    if (targetType) {
+        result = result.filter(sub =>
+            Array.isArray(sub.assessments) && sub.assessments.some(a =>
+                (a.type_activity || a.type)?.toLowerCase() === targetType
+            )
+        );
+    }
+
+
+    return result;
+});
+
+
+const filteredAssessments = computed(() => {
+    if (!selectedSubject.value || !selectedSubject.value.assessments) {
+        return [];
+    }
+
+    let assessments = selectedSubject.value.assessments;
+    const typeFilter = activityFilter.value;
+    const qtrFilter = quarterFilter.value; // Use new quarter filter state
+
+    // 1. Filter by Activity Type
+    if (typeFilter !== 'all') {
+        assessments = assessments.filter(assessment =>
+            (assessment.type_activity || assessment.type)?.toLowerCase() === typeFilter.toLowerCase()
+        );
+    }
+
+    // 2. Filter by Quarter
+    if (qtrFilter !== 'all') {
+        assessments = assessments.filter(assessment =>
+            assessment.type_quarter?.toLowerCase() === qtrFilter.toLowerCase()
+        );
+    }
+
+    return assessments;
+});
+
+// --- Event Handlers and Methods (Kept for completeness) ---
+
+const openSubjectModal = (subject) => { selectedSubject.value = subject; bsSubjectModal?.show(); };
+const openAssessmentEdit = (assessment) => {
+    if (!assessment) return;
+    isEditing.value = true;
+    // Note: The original form names (name, grade, max_grade) are inconsistent with model fields (name_assessment, score, total_items)
+    // We try to map the new data structure (assessment model) back to the form structure.
+    Object.assign(form, {
+        id: assessment.id,
+        subject_id: assessment.subject_id,
+        name: assessment.name_assessment, // Use name_assessment from API
+        type_assessment: assessment.type_activity, // Use type_activity from API
+        grade: assessment.score, // Use score from API
+        max_grade: assessment.total_items, // Use total_items from API
+        weight: assessment.weight,
+        date_taken: assessment.date_taken,
+    });
+    bsSubjectModal?.hide();
+    setTimeout(() => { assessmentModalRef.value?.openForEdit("assessment", form); }, 300);
+};
+const closeSubjectModal = () => { bsSubjectModal?.hide(); };
+const handleDelete = async (id) => {
+    if (!confirm("Are you sure you want to delete this assessment?")) return;
+    try {
+        const success = await assessmentApi.deleteAssessment(id);
+        if (!success) throw new Error("Delete failed");
+        await subjectsApi.getSubjects();
+        const updatedSubject = subjectsApi.subjects.value.find(s => s.id === selectedSubject.value.id);
+        if (updatedSubject) { selectedSubject.value = updatedSubject; }
+        else { bsSubjectModal?.hide(); }
+    } catch (error) { console.error("Something went wrong while deleting the assessment.", error); }
+};
+const handleAssessmentUpdate = async () => {
+    await subjectsApi.getSubjects();
+    if (form.subject_id) {
+        const updatedSubject = subjectsApi.subjects.value.find(s => s.id === form.subject_id);
+        if (updatedSubject) {
+            selectedSubject.value = updatedSubject;
+            bsSubjectModal?.show();
+        }
+    }
+    resetForm();
+};
 </script>
 
 <template>
-  <!-- <NavigationComponent /> -->
-  <NavigationChild />
-  <SubNavigation />
-  <FilterComponent
-    v-model:searchQueryGrade="searchQueryGrade"
-    v-model:sortOptionGrade="sortOptionGrade"
-  />
+    <NavigationChild />
+    <SubNavigation />
 
-  <!-- Subjects List -->
-  <transition-group name="fade-slide" tag="div" class="container mt-4 py-5">
-    <div v-if="filteredSubjects.length">
-      <button
-        v-for="subject in filteredSubjects"
-        :key="subject.id"
-        class="btn mb-3 w-100 shadow-sm border-0 rounded-4 py-3 px-4 text-start subject-card"
-        @click="openSubjectModal(subject)"
-      >
-        <div class="row align-items-center">
-          <div :class="subject.color" class="col-auto rounded-circle shadow-sm" style="height:50px; width:50px"></div>
-          <div class="col ms-3">
-            <h5 class="mb-0">{{ subject.name }}</h5>
-            <p class="fst-italic text-secondary mb-0">{{ subject.assessments_count }} assessments recorded</p>
-          </div>
-          <div class="col-auto text-end">
-            <div class="d-flex flex-column align-items-end">
-              <h4 class="mb-0">{{ subject.current_grade }}%</h4>
-              <p class="text-secondary fst-italic mb-0">Target: {{ subject.target_grade }}%</p>
-              <div class="progress mt-2 rounded-pill" style="height: 15px; width: 100px; background: #e0e0e0;">
-                <div
-                  class="progress-bar progress-bar-striped progress-bar-animated rounded-pill"
-                  :style="{ width: subject.current_grade > subject.target_grade ? '100%' : subject.current_grade + '%', background: 'linear-gradient(90deg, #3b82f6, #a855f7)' }"
-                ></div>
-              </div>
-            </div>
-          </div>
+    <FilterComponent
+        v-model:searchQueryGrade="searchQueryGrade"
+        v-model:sortOptionGrade="sortOptionGrade"
+    />
+
+    <transition-group name="fade-slide" tag="div" class="container mt-4 py-5">
+        <div v-if="subjectsApi.subjects.loading" class="text-center text-primary py-5">
+            Loading subjects...
         </div>
-      </button>
-    </div>
-    <div v-else class="text-center text-secondary py-5">
-      No subjects found for this filter.
-    </div>
-  </transition-group>
-
-  <!-- Subject Modal -->
-  <div class="modal fade" ref="subjectModalRef" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
-      <div class="modal-content rounded-4 shadow-lg" v-if="selectedSubject">
-        <div class="modal-header bg-gradient text-black py-3 rounded-top-4">
-          <h1 class="modal-title fs-5 text-uppercase fst-italic">{{ selectedSubject.name }}</h1>
-          <button type="button" class="btn-close btn-close-black" @click="closeSubjectModal" aria-label="Close"></button>
-        </div>
-        <div class="modal-body p-4 bg-light">
-          <div class="d-flex justify-content-between mb-2">
-            <p class="fst-italic text-secondary mb-0">Assessments History</p>
-            <p class="text-secondary mb-0 fw-bold">Average: {{ averageGrade(selectedSubject.assessments) }}%</p>
-          </div>
-
-          <div v-if="selectedSubject.assessments.length" class="mt-2">
-            <div
-              v-for="assessment in selectedSubject.assessments"
-              :key="assessment.id"
-              class="border shadow-sm rounded-4 p-3 mb-3 assessment-card"
+        <div v-else-if="filteredSubjects.length">
+            <button
+                v-for="subject in filteredSubjects"
+                :key="subject.id"
+                class="btn mb-3 w-100 shadow-sm border-0 rounded-4 py-3 px-4 text-start subject-card"
+                @click="openSubjectModal(subject)"
             >
-              <div class="row row-cols-4 align-items-center">
-                <div class="col">
-                  <p class="fs-6 mb-0 text-capitalize">{{ assessment.name }}</p>
-                  <p class="mb-0 text-secondary">{{ new Date(assessment.date_taken).toLocaleDateString() }}</p>
+                <div class="row align-items-center">
+                    <div :class="subject.color" class="col-auto rounded-circle shadow-sm text-center align-items-center pt-3" style="height:50px; width:50px">
+                       <span :class="subject.color === '#FF5733' ? 'text-black' : 'text-white'" class="avatar-initials fw-bold">{{ getSubjectInitial(subject.name || subject.subject_name) }}</span>
+                    </div>
+                    <div class="col ms-3">
+                        <h5 class="mb-0">{{ subject.name || subject.subject_name }}</h5>
+                    </div>
+                    <!-- Removed the Avg. Grade display block -->
                 </div>
-                <div class="col">
-                  <p class="mb-0 text-capitalize fw-semibold">{{ assessment.type }}</p>
-                </div>
-                <div class="col text-end">
-                  <p class="mb-0">{{ assessment.grade }}/{{ assessment.max_grade }}</p>
-                  <p class="mb-0 text-secondary">{{ ((assessment.grade / assessment.max_grade) * 100).toFixed(1) }}%</p>
-                </div>
-                <div class="col text-end">
-                  <a class="btn ri-edit-circle-line fs-5 me-2" @click="openAssessmentEdit(assessment)"></a>
-                  <a class="btn ri-delete-bin-line text-danger fs-5" @click="handleDelete(assessment.id)"></a>
-                </div>
-              </div>
-            </div>
-
-            <div v-if="loading" class="mt-3 text-center loading-customized">
-              <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading...</span>
-              </div>
-              <p>Loading...</p>
-            </div>
-          </div>
-          <div v-else class="text-center text-secondary py-3">
-            No assessments recorded.
-          </div>
+            </button>
         </div>
-      </div>
-    </div>
-  </div>
+        <div v-else class="text-center text-secondary py-5">
+            No subjects found for this filter.
+        </div>
+    </transition-group>
 
-  <AddUpdateComponent
-    ref="assessmentModalRef"
-    :form="form"
-    :isEditing="isEditing"
-    @update="getSubjects"
-  />
+    <div class="modal fade" ref="subjectModalRef" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content rounded-4 shadow-lg" v-if="selectedSubject">
+                <div class="modal-header bg-gradient text-black py-3 rounded-top-4">
+                    <h1 class="modal-title fs-5 text-uppercase fst-italic">
+                        {{ selectedSubject.name || selectedSubject.subject_name }}
+                    </h1>
+                    <button type="button" class="btn-close btn-close-black" @click="closeSubjectModal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4 bg-light">
+
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <p class="fst-italic text-secondary mb-0">Assessments</p>
+
+                        <div class="d-flex align-items-center flex-wrap gap-3">
+                            <div class="d-flex align-items-center">
+                                <label for="activityFilter" class="form-label text-muted me-2 mb-0 small">Filter Type:</label>
+                                <select
+                                    id="activityFilter"
+                                    v-model="activityFilter"
+                                    class="form-select form-select-sm"
+                                    style="width: 150px;"
+                                >
+                                    <option value="all">All Activities</option>
+                                    <option value="quiz">Quiz</option>
+                                    <option value="exam">Exam</option>
+                                    <option value="assignment">Assignment</option>
+                                    <option value="project">Project</option>
+                                </select>
+                            </div>
+
+                            <div class="d-flex align-items-center">
+                                <label for="quarterFilter" class="form-label text-muted me-2 mb-0 small">Filter Quarter/Semester :</label>
+                                <select
+                                    id="quarterFilter"
+                                    v-model="quarterFilter"
+                                    class="form-select form-select-sm"
+                                    style="width: 150px;"
+                                >
+                                    <option value="all">All Quarter</option>
+                                    <option value="preliminary">Preliminary</option>
+                                    <option value="midterm">Midterm</option>
+                                    <option value="semi_final">Semi-Final</option>
+                                    <option value="final">Final</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div v-if="filteredAssessments.length" class="table-responsive">
+                        <table class="table table-hover table-sm align-middle rounded-4 shadow-sm assessment-table">
+                            <thead class="bg-white">
+                                <tr>
+                                    <th scope="col" class="text-uppercase small">Name</th>
+                                    <th scope="col" class="text-uppercase small">Type / Quarter</th>
+                                    <th scope="col" class="text-end text-uppercase small">Grade (Score)</th>
+                                    <th scope="col" class="text-end text-uppercase small">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="assessment in filteredAssessments" :key="assessment.id">
+                                    <td>
+                                        <p class="fs-6 mb-0 text-capitalize">{{ assessment.name_assessment }}</p>
+                                        <small class="text-secondary">{{ assessment.date_taken ? new Date(assessment.date_taken).toLocaleDateString() : 'N/A' }}</small>
+                                    </td>
+                                    <td>
+                                        <p class="mb-0 fw-semibold text-capitalize">{{ assessment.type_activity || assessment.type_activity }}</p>
+                                        <small class="text-muted text-capitalize">{{ assessment.type_quarter || 'N/A' }}</small>
+                                    </td>
+                                    <td class="text-end">
+                                        <p class="mb-0 fw-bold">{{ assessment.score }}/{{ assessment.total_items }}</p>
+                                        <small class="text-secondary" v-if="assessment.total_items > 0">{{ ((assessment.score / assessment.total_items) * 100).toFixed(1) }}%</small>
+                                        <small class="text-secondary" v-else>0.0%</small>
+                                    </td>
+                                    <td class="text-end">
+                                        <button type="button" class="btn btn-sm ri-edit-circle-line me-1" title="Edit Assessment" @click="openAssessmentEdit(assessment)"></button>
+                                        <button type="button" class="btn btn-sm ri-delete-bin-line text-danger" title="Delete Assessment" @click="handleDelete(assessment.id)"></button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div v-else class="text-center text-secondary py-3">
+                        <span v-if="activityFilter === 'all' && quarterFilter === 'all'">No assessments recorded for {{ selectedSubject.name || selectedSubject.subject_name }}.</span>
+                        <span v-else>No assessments match the selected filter criteria (Type: **{{ activityFilter }}**, Quarter: **{{ quarterFilter }}**).</span>
+                    </div>
+                </div>
+
+                <!-- Removed the complex modal-footer grade computation block -->
+
+                <div class="modal-footer p-2 bg-white">
+                    <button type="button" class="btn btn-secondary" @click="closeSubjectModal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <AddUpdateComponent
+        ref="assessmentModalRef"
+        :form="form"
+        :isEditing="isEditing"
+        @update="handleAssessmentUpdate"
+    />
 </template>
 
 <style scoped>
+/* Scoped styles remain the same */
 .subject-card {
-  transition: all 0.3s ease;
+    transition: all 0.3s ease;
 }
 .subject-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 6px 18px rgba(0,0,0,0.15);
+    transform: translateY(-4px);
+    box-shadow: 0 6px 18px rgba(0,0,0,0.15);
 }
 
 .assessment-card {
-  transition: all 0.3s ease;
+    transition: all 0.3s ease;
 }
 .assessment-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
 }
 
 .bg-gradient {
-  background: linear-gradient(135deg, #3b82f6, #a855f7);
+    background: linear-gradient(135deg, #3b82f6, #a855f7);
 }
 
 .progress-bar {
-  transition: width 0.4s ease;
+    transition: width 0.4s ease;
 }
 
 
-  .fade-slide-enter-active,
-  .fade-slide-leave-active {
+.fade-slide-enter-active,
+.fade-slide-leave-active {
     transition: all 0.8s ease-in-out;
-  }
-  .fade-slide-enter-from,
-  .fade-slide-leave-to {
+}
+.fade-slide-enter-from,
+.fade-slide-leave-to {
     opacity: 0;
     transform: translateY(20px);
-  }
-  .fade-slide-enter-to,
-  .fade-slide-leave-from {
+}
+.fade-slide-enter-to,
+.fade-slide-leave-from {
     opacity: 1;
     transform: translateY(0);
-  }
+}
 
-
-
- .loading-customized {
-  position: absolute;
-  left: 50%;
-  top: 29.3%;
-  transform: translate(-50%, -50%);
-  width: 100%;
-  height: 115vh;
-  background: #80808054;
-  display: flex;
-  justify-content: center;
-  align-items: center;
+.loading-customized {
+    position: absolute;
+    left: 50%;
+    top: 29.3%;
+    transform: translate(-50%, -50%);
+    width: 100%;
+    height: 115vh;
+    background: #80808054;
+    display: flex;
+    justify-content: center;
+    align-items: center;
 }
 
 
 .customize-border {
-  border: 1px solid #d5d5d5f5;
-  border-radius: 6px;
-  box-shadow: gray 0px 2.5px 3px 0px;
-  text-align: left;
+    border: 1px solid #d5d5d5f5;
+    border-radius: 6px;
+    box-shadow: gray 0px 2.5px 3px 0px;
+    text-align: left;
 }
 .customize-border:hover {
-  box-shadow: #0a0c1a 0px 5.5px 15px 2px !important;
-  transition: all 0.5s;
+    box-shadow: #0a0c1a 0px 5.5px 15px 2px !important;
+    transition: all 0.5s;
 }
 </style>
-
-
-<!-- <style scoped>
-
-
-  .fade-slide-enter-active,
-  .fade-slide-leave-active {
-    transition: all 0.8s ease-in-out;
-  }
-  .fade-slide-enter-from,
-  .fade-slide-leave-to {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  .fade-slide-enter-to,
-  .fade-slide-leave-from {
-    opacity: 1;
-    transform: translateY(0);
-  }
-
-
-
- .loading-customized {
-  position: absolute;
-  left: 50%;
-  top: 29.3%;
-  transform: translate(-50%, -50%);
-  width: 100%;
-  height: 115vh;
-  background: #80808054;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-
-
-.customize-border {
-  border: 1px solid #d5d5d5f5;
-  border-radius: 6px;
-  box-shadow: gray 0px 2.5px 3px 0px;
-  text-align: left;
-}
-.customize-border:hover {
-  box-shadow: #0a0c1a 0px 5.5px 15px 2px !important;
-  transition: all 0.5s;
-}
-</style> -->

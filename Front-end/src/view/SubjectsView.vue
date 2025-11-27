@@ -1,206 +1,246 @@
 <script setup>
-  // import NavigationComponent from './components/NavigationComponent.vue';
-  import NavigationChild from './components/NavigationChild.vue';
+    import NavigationChild from './components/NavigationChild.vue';
+    import SubNavigation from './components/SubNavigation.vue';
+    import FilterComponent from './components/FilterComponent.vue';
+    import AddUpdateComponent from './components/AddUpdateComponent.vue';
 
-  import SubNavigation from './components/SubNavigation.vue';
-  import FilterComponent from './components/FilterComponent.vue';
-  import AddUpdateComponent from './components/AddUpdateComponent.vue';
+    import { onMounted, ref, computed } from 'vue';
+    import { useSubjects } from "../composables/subjects.js";
 
-  import { onMounted, ref, computed } from 'vue';
-  import { useSubjects } from "../composables/subjects.js";
+    const token = localStorage.getItem("token");
 
+    // --- REQUIRED STATE ---
+    const subjectModal = ref(null);
+    const searchQuery = ref("");
+    const sortOption = ref("name"); // Default sort option
 
-  const token = localStorage.getItem("token");
-  const subjectModal = ref(null);
-  const searchQuery = ref("");
-  const sortOption = ref("name");
+    // --- COMPOSABLE DESTRUCTURING ---
+    const {
+      subjects,
+      loading,
+      getSubjects,
+      deleteSubject,
+    } = useSubjects(token);
 
-  const { subjects, loading, getSubjects, deleteSubject} = useSubjects(token);
+    // --- ASYNCHRONOUS DATA FETCHING (OPTIMIZED) ---
+    const fetchData = async () => {
+      // Fetches subjects and overall performance data in parallel
+      await Promise.all([
+        getSubjects(),
+      ]);
+    };
 
-  const handleDelete = async (id) => {
-    if (!confirm("Are you sure you want to delete this subject?")) {
-      return;
+  const getSubjectInitial = (name) => {
+    if (!name || typeof name !== 'string' || name.length === 0) {
+      return '?'; // Handle null, undefined, or empty strings
     }
-    await deleteSubject(id);
+    // Get the first character and convert it to uppercase
+    return name.charAt(0).toUpperCase();
   };
 
+    // --- HANDLERS ---
+    const handleAdd = async () => {
+      // Refresh data after adding a subject
+      await fetchData();
+    };
+
+    const handleDelete = async (id) => {
+      if (!confirm("Are you sure you want to delete this subject?")) {
+        return;
+      }
+      await deleteSubject(id);
+      await fetchData(); // Refresh list
+    };
+
+    // --- COMPUTED PROPERTIES ---
+
   const filteredSubjects = computed(() => {
-  if (!subjects.value) return [];
+    // 1. Initial Data Check and Standardization
+    if (!Array.isArray(subjects.value)) return [];
 
-  let result = subjects.value.filter(sub =>
-    sub.name.toLowerCase().includes(searchQuery.value.toLowerCase())
-  );
+    // Create a working array, standardizing the name for easier use
+    let result = subjects.value.map(sub => ({
+      ...sub,
+      name: sub.subject_name || sub.name, // Ensure 'name' property exists
+    }));
 
+    // 2. Filtering by Search Query
+    if (searchQuery.value) {
+      const query = searchQuery.value.toLowerCase();
+      result = result.filter(sub =>
+        sub.name.toLowerCase().includes(query)
+      );
+    }
+
+    // 3. Sorting Logic
     switch (sortOption.value) {
       case "name":
+        // Sort alphabetically by name (default)
         return result.sort((a, b) => a.name.localeCompare(b.name));
-      case "1":
-        return result.sort((a, b) => b.current_grade - a.current_grade);
-      case "2":
-        return result.sort((a, b) => b.target_grade - a.target_grade);
       case "3":
-        return result.sort((a, b) => b.assessments_count - a.assessments_count);
-      case "4":
-         return result.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        // Sort by creation date (newest first)
+        return result.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       default:
+        // If sortOption is invalid or not set, return current result
         return result;
     }
   });
 
-
-  onMounted(getSubjects);
-
+  onMounted(fetchData);
 </script>
 
+
 <template>
-  <NavigationChild />
-  <SubNavigation />
-  <FilterComponent
-    v-model:searchQuery="searchQuery"
-    v-model:sortOption="sortOption"
-  />
+  <div class="subjects-page">
+    <NavigationChild />
+    <SubNavigation />
+    <FilterComponent
+      v-model:searchQuery="searchQuery"
+      v-model:sortOption="sortOption"
+      class="mb-4"
+    />
 
-  <!-- Loading -->
-  <div v-if="loading" class="text-center loading-customized">
-    <div class="spinner-border text-primary" role="status">
-      <span class="visually-hidden">Loading...</span>
-    </div>
-    <p>Loading subjects...</p>
-  </div>
-
-  <!-- Subjects -->
-  <div v-else class="container-fluid my-3">
-    <transition-group name="fade-slide" tag="div" class="row g-3 justify-content-center">
-      <div
-        v-for="subject in filteredSubjects"
-        :key="subject.id"
-        class="col-12 col-md-6 col-lg-4"
-      >
-        <div class="subject-card border rounded shadow-sm p-3 bg-white">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <div class="d-flex align-items-center gap-2">
-              <div :class="subject.color" class="border rounded-circle shadow" style="height:28px; width:28px"></div>
-              <div>
-                <h5 class="mb-0 text-capitalize fw-semibold">{{ subject.name }}</h5>
-                <p class="text-muted small mb-0">{{ subject.assessments_count }} assessments</p>
-              </div>
-            </div>
-            <div class="d-flex gap-2">
-              <button class="btn btn-sm text-primary ri-edit-circle-line fs-5" @click="subjectModal.openForEdit('subject', subject)"></button>
-              <button class="btn btn-sm text-danger ri-delete-bin-line fs-5" @click="handleDelete(subject.id)"></button>
-            </div>
-          </div>
-
-          <!-- Grades -->
-          <div class="row text-center my-2">
-            <div class="col">
-              <h6 class="fw-bold">{{ subject.current_grade }}%</h6>
-              <p class="small text-muted mb-0">Current</p>
-            </div>
-            <div class="col">
-              <h6 class="fw-bold">{{ subject.target_grade }}%</h6>
-              <p class="small text-muted mb-0">Target</p>
-            </div>
-            <div class="col">
-              <h6 class="fw-bold">{{ subject.assessments_count }}</h6>
-              <p class="small text-muted mb-0">Assessments</p>
-            </div>
-          </div>
-
-          <!-- Progress -->
-          <div class="mt-3">
-            <div class="d-flex justify-content-between align-items-center mb-1">
-              <span class="fw-semibold">Progress</span>
-              <span class="small text-muted">{{ subject.current_grade }}%</span>
-            </div>
-            <div class="progress" style="height: 8px;">
-              <div
-                class="progress-bar"
-                role="progressbar"
-                :class="{
-                  'bg-success': subject.current_grade >= subject.target_grade,
-                  'bg-warning': subject.current_grade >= subject.target_grade - 10 && subject.current_grade < subject.target_grade,
-                  'bg-danger': subject.current_grade < subject.target_grade - 10
-                }"
-                :style="{ width: Math.min(subject.current_grade, 100) + '%' }"
-              ></div>
-            </div>
-          </div>
-
-          <!-- Footer -->
-          <div class="d-flex justify-content-between mt-3">
-            <span class="badge bg-secondary text-white">
-              Target: {{ subject.target_grade }}%
-            </span>
-            <span class="badge bg-light text-dark">
-              Created: {{ new Date(subject.created_at).toLocaleDateString() }}
-            </span>
-          </div>
-        </div>
+    <div v-if="loading" class="loading-state">
+      <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
       </div>
-    </transition-group>
-
-    <!-- Empty state -->
-    <div v-if="!filteredSubjects.length && !loading" class="text-center text-muted py-5">
-      <i class="ri-inbox-2-line fs-1"></i>
-      <p class="mt-2">No subjects found. Try adjusting your search or add a new one.</p>
+      <p class="mt-2 text-muted">Loading subjects...</p>
     </div>
+
+    <div v-else class="subject-list-container my-4 px-5">
+      <transition-group name="card-transition" tag="div" class="row g-4 justify-content-center">
+        <div
+          v-for="subject in filteredSubjects"
+          :key="subject.id"
+          class="col-12 col-sm-6 col-md-6 col-lg-4 col-xl-3"
+        >
+          <article class="subject-card card h-100 shadow-sm border-0">
+            <div class="card-body p-4">
+              <header class="d-flex align-items-center mb-3">
+                <div
+                  :class="subject.color"
+                  class="subject-color-indicator rounded-circle shadow-sm me-3 text-center align-items-center py-1"
+                  role="presentation"
+                >
+                <span :class="subject.color === '#FF5733' ? 'text-black' : 'text-white'" class="avatar-initials fw-bold">{{ getSubjectInitial(subject.subject_name) }}</span>
+              </div>
+
+                <h3 class="card-title h5 mb-0 text-capitalize fw-bold flex-grow-1">
+                  {{ subject.subject_name }}
+                </h3>
+
+                <div class="subject-actions ms-auto">
+                  <button
+                    class="btn btn-sm btn-icon text-primary me-1"
+                    :aria-label="`Edit ${subject.subject_name}`"
+                    @click="subjectModal.openForEdit('subject', subject)"
+                  >
+                    <i class="ri-edit-circle-line fs-5"></i>
+                  </button>
+                  <button
+                    class="btn btn-sm btn-icon text-danger"
+                    :aria-label="`Delete ${subject.subject_name}`"
+                    @click="handleDelete(subject.id)"
+                  >
+                    <i class="ri-delete-bin-line fs-5"></i>
+                  </button>
+                </div>
+              </header>
+
+              <footer class="mt-4 pt-3 border-top">
+                <span class="badge bg-light text-muted fw-normal">
+                  <i class="ri-calendar-line me-1"></i>
+                  Created: {{ new Date(subject.created_at).toLocaleDateString() }}
+                </span>
+              </footer>
+            </div>
+          </article>
+        </div>
+      </transition-group>
+
+      <div v-if="!filteredSubjects.length && !loading" class="empty-state text-center text-muted py-5">
+        <i class="ri-inbox-2-line fs-1 text-secondary"></i>
+        <p class="mt-3 fs-5">No subjects found.</p>
+        <p>Try adjusting your search or add a new one.</p>
+      </div>
+    </div>
+
+    <AddUpdateComponent ref="subjectModal" @add="handleAdd" />
   </div>
-
-  <AddUpdateComponent ref="subjectModal" @add="handleAdd" />
-
 </template>
 
 <style scoped>
-/* Animations */
-.fade-slide-enter-active,
-.fade-slide-leave-active {
-  transition: all 0.4s ease;
+/* --- Component-Specific Styles --- */
+
+/* 1. Transitions */
+.card-transition-enter-active,
+.card-transition-leave-active {
+  transition: all 0.4s cubic-bezier(0.5, 0, 0.5, 1); /* Smoother, bouncier curve */
 }
-.fade-slide-enter-from,
-.fade-slide-leave-to {
+.card-transition-enter-from,
+.card-transition-leave-to {
   opacity: 0;
-  transform: translateY(10px);
+  transform: scale(0.95) translateY(20px);
+}
+.card-transition-leave-active {
+  position: absolute; /* Allows remaining elements to transition smoothly */
 }
 
-/* Loading overlay */
-.loading-customized {
-  height: 100%;
-  position: fixed;
-  top: 0;
-  background: #ffffffcc;
-  width: 100%;
+/* 2. Layout & States */
+.loading-state {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  min-height: 150px; /* Ensure loading state is prominent */
+  padding: 2rem;
 }
 
-/* Card design */
-.subject-card {
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+.empty-state i {
+  /* Larger, more noticeable icon for empty state */
+  font-size: 4rem !important;
+  opacity: 0.7;
 }
+
+/* 3. Subject Card */
+.subject-card {
+  border: 1px solid var(--bs-border-color-translucent, #f0f0f0);
+  transition: all 0.3s ease-out;
+  cursor: pointer;
+}
+
 .subject-card:hover {
   transform: translateY(-5px);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.08) !important; /* Stronger, modern shadow */
+  border-color: var(--bs-primary-border-subtle, #e0e0e0);
 }
 
-/* Floating Add Button */
-.fab {
-  position: fixed;
-  bottom: 40px;
-  right: 40px;
-  border-radius: 50%;
-  width: 60px;
-  height: 60px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
-  transition: all 0.3s ease;
+.subject-color-indicator {
+  height: 32px; /* Slightly larger */
+  width: 32px; /* Slightly larger */
+  min-width: 32px; /* Prevent shrinking */
 }
-.fab:hover {
-  transform: scale(1.05);
+
+.subject-actions .btn-icon {
+  /* Optimized button styles */
+  padding: 0.25rem 0.4rem;
+  line-height: 1;
 }
+
+.subject-actions .ri-delete-bin-line {
+  /* Use lighter red for delete icon */
+  color: var(--bs-red-600, #dc3545);
+}
+
+.subject-actions .ri-edit-circle-line {
+  /* Use lighter blue for edit icon */
+  color: var(--bs-blue-600, #0d6efd);
+}
+
+/* 4. Utility Overrides (If necessary, but kept to a minimum) */
+.h-100 {
+  /* Ensure the card takes full height in the grid row */
+  height: 100% !important;
+}
+
 </style>

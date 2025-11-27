@@ -7,387 +7,454 @@ import { useTodos } from '@/composables/task.js';
 const route = useRoute();
 
 const token = localStorage.getItem("token");
+// subjects is the MERGED array from useSubjects (includes quarters_data)
 const { subjects, getSubjects } = useSubjects(token);
-const { todos } = useTodos(token);
+const { todos, getTodos } = useTodos(token);
 
 const allTodos = computed(() => todos.value);
 
-const todoCounts = computed(() => {
-  const all = allTodos.value;
-  const today = new Date().toISOString().split("T")[0]; 
+// Helper function to calculate a subject's single weighted percentage across ALL quarters
+const getSubjectWeightedAveragePercent = (subject) => {
+    let rawScoreSum = 0;
+    let gradedQuartersCount = 0;
 
-  return {
-    All: all.length,
-    Pending: all.filter(t => !t.completed).length,
-    Completed: all.filter(t => t.completed).length,
-    DueToday: all.filter(
-      t => !t.completed && (t.due_date || "").split("T")[0] === today
-    ).length,
-    Overdue: all.filter(
-      t => !t.completed && (t.due_date || "") < today
-    ).length,
-  };
-});
+    // Check for the quarters_data merged from the final_grade API
+    const quarters = subject.quarters_data || {};
+
+    Object.values(quarters).forEach(quarterData => {
+        const rawScore = quarterData.overall?.raw_score;
+
+        // Use the weighted raw percentage from the backend
+        if (rawScore !== null && rawScore !== undefined) {
+            rawScoreSum += Number(rawScore);
+            gradedQuartersCount++;
+        }
+    });
+
+    return gradedQuartersCount > 0 ? (rawScoreSum / gradedQuartersCount) : 0;
+};
+
+// --------------------------------------------------------------------------------
+// ➡️ NEW/OPTIMIZED: Study Streak Calculation
+// --------------------------------------------------------------------------------
 
 const studyStreak = computed(() => {
-  if (!allTodos.value.length) return 0;
+    // 1. Collect and normalize all assessment dates to milliseconds for accurate comparison
+    const activityTimestamps = subjects.value
+        .flatMap(s => s.assessments || [])
+        .map(a => {
+            if (!a.date_taken) return null;
+            // Normalize to start of the day (midnight) to compare dates, not times
+            const date = new Date(a.date_taken);
+            date.setHours(0, 0, 0, 0);
+            return date.getTime();
+        })
+        .filter(t => t !== null);
 
-  const today = new Date();
-  let streak = 0;
+    if (activityTimestamps.length === 0) return 0;
 
-  // Sort todos by due_date descending
-  const sortedTodos = [...allTodos.value]
-    .filter(t => t.completed && t.due_date)
-    .sort((a, b) => new Date(b.due_date) - new Date(a.due_date));
+    // 2. Get unique timestamps and sort them chronologically
+    const uniqueTimestamps = [...new Set(activityTimestamps)].sort((a, b) => a - b);
 
-  for (let i = 0; i < sortedTodos.length; i++) {
-    const todoDate = new Date(sortedTodos[i].due_date);
+    let currentStreak = 0;
+    let maxStreak = 0;
 
-    // Check if this todo is exactly streak days behind today
-    const diffDays = Math.floor((today - todoDate) / (1000 * 60 * 60 * 24));
-    if (diffDays === streak) {
-      streak++;
-    } else {
-      break;
+    for (let i = 0; i < uniqueTimestamps.length; i++) {
+        // Start a new streak or continue the existing one
+        if (i === 0) {
+            currentStreak = 1;
+        } else {
+            // Calculate difference in milliseconds
+            const diffMs = uniqueTimestamps[i] - uniqueTimestamps[i - 1];
+            // Convert difference to days (86400000 ms in a day)
+            const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+            if (diffDays === 1) {
+                // Activity was exactly the day after the previous one
+                currentStreak++;
+            } else if (diffDays > 1) {
+                // Gap found, reset streak to 1 (for the current day)
+                currentStreak = 1;
+            }
+            // diffDays === 0 means duplicate date, currentStreak remains unchanged
+        }
+        maxStreak = Math.max(maxStreak, currentStreak);
     }
-  }
 
-  return streak;
+    // NOTE: The calculated maxStreak represents the longest consecutive run.
+    return maxStreak;
 });
 
-// ---------- Helpers ----------
-const safeWeightedAverage = (arr, valueFn, weightFn) => {
-  if (!arr.length) return 0;
-  let total = 0;
-  let totalWeight = 0;
+// --------------------------------------------------------------------------------
+// ➡️ Task Counters (Optimized for calculation efficiency)
+// --------------------------------------------------------------------------------
+const todoCounts = computed(() => {
+    const all = allTodos.value;
+    const todayISO = new Date().toISOString().split("T")[0];
 
-  arr.forEach(item => {
-    const value = valueFn(item);
-    const w = Number(weightFn(item)) || 1;
-    total += value * w;
-    totalWeight += w;
-  });
+    const metrics = {
+        All: all.length,
+        Pending: 0,
+        Completed: 0,
+        DueToday: 0,
+        Overdue: 0,
+    };
 
-  return totalWeight ? total / totalWeight : 0;
-};
+    all.forEach(t => {
+        if (t.completed) {
+            metrics.Completed++;
+        } else {
+            metrics.Pending++;
+            const dueDateISO = (t.due_date || "").split("T")[0];
+
+            if (dueDateISO) {
+                if (dueDateISO === todayISO) {
+                    metrics.DueToday++;
+                } else if (dueDateISO < todayISO) {
+                    metrics.Overdue++;
+                }
+            }
+        }
+    });
+
+    return metrics;
+});
+
+// ---------- Grade/Subject Helpers (Optimized) ----------
 
 const totalAssessments = computed(() =>
-  subjects.value.reduce((acc, s) => acc + (s.assessments?.length || 0), 0)
+    subjects.value.reduce((acc, s) => acc + (s.assessments?.length || 0), 0)
 );
 
-
-const taskCompletionPercentage = computed(() => {
-  if (!todoCounts.value.All) return 0;
-  return Math.round((todoCounts.value.Completed / todoCounts.value.All) * 100);
-});
-
-
-const percentageToGPA = (percent) => {
-  if (percent >= 90) return 1.0;
-  if (percent >= 80) return 2.0;
-  if (percent >= 70) return 3.0;
-  if (percent >= 60) return 4.0;
-  return 5.0; // fail, if using PH/CHED style
+// Helper to get the GPA from the subject_final_average (from API merge)
+const getSubjectFinalGPA = (subject) => {
+    // We assume subject_final_average is the final transmuted grade (1.0 - 5.0)
+    return Number(subject.subject_final_average) || 5.0;
 };
 
-// ---------- Subjects ----------
-const aboveTarget = computed(() =>
-  subjects.value.filter(s => s.current_grade > s.target_grade).length
+// Subjects passing (status == 'Passing')
+const passingSubjects = computed(() =>
+    subjects.value.filter(s => s.status === 'Passing')
 );
 
-// Weighted average grade across all subjects (%)
-const averageGrade = computed(() =>
-  safeWeightedAverage(
-    subjects.value,
-    s => Number(s.current_grade) || 0,
-    s => s.weight || 1
-  ).toFixed(1)
-);
+// Weighted average grade percentage across all subjects
+const averageGrade = computed(() => {
+    const totalWeightedScores = subjects.value.reduce((sum, s) => {
+        return sum + getSubjectWeightedAveragePercent(s);
+    }, 0);
 
-// Weighted overall GPA (4.0 scale or PH scale)
-const overallGPA4 = computed(() =>
-  safeWeightedAverage(
-    subjects.value,
-    s => percentageToGPA(Number(s.current_grade) || 0),
-    s => s.weight || 1
-  ).toFixed(2)
-);
-
-// ---------- Dashboard ----------
-const dashboardStats = computed(() => {
-  return {
-    averagePercent: averageGrade.value,   // weighted percent
-    overallGPA: overallGPA4.value,       // weighted GPA
-    activeSubjects: subjects.value.length,
-    pendingTasks: todoCounts.value.Pending,
-    completedTasks: todoCounts.value.Completed,
-  };
+    return subjects.value.length > 0
+        ? (totalWeightedScores / subjects.value.length).toFixed(1)
+        : '0.0';
 });
+
+
+// Weighted overall GPA (Derived from the final transmuted grade)
+const overallGPA = computed(() => {
+    const gradedSubjects = subjects.value.filter(s => s.subject_final_average !== null);
+
+    if (gradedSubjects.length === 0) return 'N/A';
+
+    const gpaSum = gradedSubjects.reduce((sum, s) => {
+        // Summing the final transmuted GPA (1.0 - 5.0) for each subject
+        return sum + getSubjectFinalGPA(s);
+    }, 0);
+
+    return (gpaSum / gradedSubjects.length).toFixed(2);
+});
+
+// ---------- Dashboard & Analytics Stats (REVISED) ----------
+const dashboardStats = computed(() => {
+    return {
+        averagePercent: averageGrade.value,
+        overallGPA: overallGPA.value,
+        activeSubjects: subjects.value.length,
+        pendingTasks: todoCounts.value.Pending,
+        completedTasks: todoCounts.value.Completed,
+    };
+});
+
+
 // ---------- Lifecycle ----------
-onMounted(getSubjects);
+onMounted(() => {
+    // Call all necessary fetch actions on mount
+    getSubjects();
+    getTodos();
+});
 </script>
 
-
 <template>
-  <div v-if="route.name == 'Dashboard'" class="stats-container">
-    <div class="stat-card" v-for="card in [
-      { title: 'Overall GPA', value: dashboardStats.overallGPA, icon: 'ri-donut-chart-line', note: '+2.1 from last semester', color: 'gradient-indigo' },
-      { title: 'Active Subjects', value: dashboardStats.activeSubjects, icon: 'ri-book-open-line', note: 'Currently Tracking', color: 'gradient-purple' },
-      { title: 'Pending Tasks', value: dashboardStats.pendingTasks, icon: 'ri-calendar-line', note: 'Due this week', color: 'gradient-orange' },
-      { title: 'Completed Tasks', value: dashboardStats.completedTasks, icon: 'ri-checkbox-circle-line', note: 'Task this month', color: 'gradient-green' }
-    ]" :key="card.title" :class="card.color">
-      <div class="stat-header">
-        <span>{{ card.title }}</span>
-        <i :class="card.icon"></i>
-      </div>
-      <div class="stat-body">
-        <h4>{{ card.value }}</h4>
-        <p>{{ card.note }}</p>
-      </div>
-    </div>
-  </div>
-
-   <div v-if="route.name === 'Analytics'" class="stats-container">
-    <!-- 🎓 Overall GPA -->
-    <div class="stat-card gradient-indigo">
-      <div class="stat-header">
-        <span>Overall GPA</span>
-        <i class="ri-donut-chart-line"></i>
-      </div>
-      <div class="stat-body">
-        <h4>{{ dashboardStats.overallGPA }}</h4>
-        <p>Currently Tracking</p>
-      </div>
-    </div>
-
-    <!-- 📊 Task Completion -->
-    <div class="stat-card gradient-blue">
-      <div class="stat-header">
-        <span>Task Completion</span>
-        <i class="ri-calendar-line"></i>
-      </div>
-      <div class="stat-body">
-        <h4>{{ taskCompletionPercentage }}%</h4>
-        <div class="progress mt-3" role="progressbar"
-          aria-valuenow="taskCompletionPercentage" aria-valuemin="0" aria-valuemax="100"
-          style="height: 10px; background: rgba(255,255,255,0.25); border-radius: 6px;">
-          <div class="progress-bar"
-            :style="{ width: taskCompletionPercentage + '%', background: '#fff', borderRadius: '6px' }"></div>
+    <div v-if="route.name == 'Dashboard'" class="stats-container">
+        <div class="stat-card" v-for="card in [
+            { title: 'Overall GPA', value: dashboardStats.overallGPA, icon: 'ri-donut-chart-line', note: 'Transmuted Grade (1.00-5.00)', color: 'gradient-indigo' },
+            { title: 'Active Subjects', value: dashboardStats.activeSubjects, icon: 'ri-book-open-line', note: 'Currently Tracking', color: 'gradient-purple' },
+            { title: 'Pending Tasks', value: dashboardStats.pendingTasks, icon: 'ri-calendar-line', note: 'Awaiting completion', color: 'gradient-orange' },
+            { title: 'Completed Tasks', value: dashboardStats.completedTasks, icon: 'ri-checkbox-circle-line', note: 'Total finished items', color: 'gradient-green' }
+        ]" :key="card.title" :class="card.color">
+            <div class="stat-header">
+                <span>{{ card.title }}</span>
+                <i :class="card.icon"></i>
+            </div>
+            <div class="stat-body">
+                <h4>{{ card.value }}</h4>
+                <p>{{ card.note }}</p>
+            </div>
         </div>
-        <p class="mt-2">Completed tasks</p>
-      </div>
     </div>
 
-    <!-- 🏆 Target Achieved -->
-    <div class="stat-card gradient-green">
-      <div class="stat-header">
-        <span>Target Achieved</span>
-        <i class="ri-award-line"></i>
-      </div>
-      <div class="stat-body">
-        <h4>{{ aboveTarget }} / {{ dashboardStats.activeSubjects }}</h4>
-        <p>Subjects above target</p>
-      </div>
+    <div v-else-if="route.name == 'Analytics'" class="stats-container">
+        <div class="stat-card gradient-indigo">
+            <div class="stat-header">
+                <span>Overall GPA</span>
+                <i class="ri-donut-chart-line"></i>
+            </div>
+            <div class="stat-body">
+                <h4>{{ overallGPA }}</h4>
+                <p>Weighted Average (1.00-5.00)</p>
+            </div>
+        </div>
+
+        <div class="stat-card gradient-blue">
+            <div class="stat-header">
+                <span>Task Completion</span>
+                <i class="ri-calendar-line"></i>
+            </div>
+            <div class="stat-body">
+                <h4>{{ todoCounts.All > 0 ? (todoCounts.Completed / todoCounts.All * 100).toFixed(0) : 0 }}%</h4>
+                <div class="progress mt-3" role="progressbar"
+                    :aria-valuenow="todoCounts.All > 0 ? (todoCounts.Completed / todoCounts.All * 100).toFixed(0) : 0" aria-valuemin="0" aria-valuemax="100"
+                    style="height: 10px; background: rgba(255,255,255,0.25); border-radius: 6px;">
+                    <div class="progress-bar"
+                        :style="{ width: (todoCounts.All > 0 ? (todoCounts.Completed / todoCounts.All * 100) : 0) + '%', background: '#fff', borderRadius: '6px' }"></div>
+                </div>
+                <p class="mt-2">Overall completion rate</p>
+            </div>
+        </div>
+
+        <div class="stat-card gradient-green">
+            <div class="stat-header">
+                <span>Passing Subjects</span>
+                <i class="ri-award-line"></i>
+            </div>
+            <div class="stat-body">
+                <h4>{{ passingSubjects.length }} / {{ subjects.length }}</h4>
+                <p>Subjects with final grade &le; 3.0</p>
+            </div>
+        </div>
+
+        <div class="stat-card gradient-orange">
+            <div class="stat-header">
+                <span>Study Streak</span>
+                <i class="ri-book-open-line"></i>
+            </div>
+            <div class="stat-body">
+                <h4>{{ studyStreak }}</h4>
+                <p>Days consecutive activity</p>
+            </div>
+        </div>
     </div>
 
-    <!-- 📚 Study Streak -->
-    <div class="stat-card gradient-orange">
-      <div class="stat-header">
-        <span>Study Streak</span>
-        <i class="ri-book-open-line"></i>
-      </div>
-      <div class="stat-body">
-        <h4>{{ studyStreak }}</h4>
-        <p>Days consecutive</p>
-      </div>
-    </div>
-  </div>
+    <div v-else-if="route.name == 'Subjects'" class="stats-container">
+        <div class="stat-card gradient-blue">
+            <div class="stat-header">
+                <span>Total Subjects</span>
+                <i class="ri-book-open-line"></i>
+            </div>
+            <div class="stat-body">
+                <h4>{{ subjects.length || 0 }}</h4>
+                <p>Currently Tracking</p>
+            </div>
+        </div>
 
-  <div v-else-if="route.name == 'Subjects'" class="stats-container">
-    <div class="stat-card gradient-blue">
-      <div class="stat-header">
-        <span>Total Subjects</span>
-        <i class="ri-book-open-line"></i>
-      </div>
-      <div class="stat-body">
-        <h4>{{ subjects.length || 0 }}</h4>
-        <p>Currently Tracking</p>
-      </div>
+        <div class="stat-card gradient-green">
+            <div class="stat-header">
+                <span>Passing Subjects</span>
+                <i class="ri-donut-chart-line"></i>
+            </div>
+            <div class="stat-body">
+                <h4>{{ passingSubjects.length }}</h4>
+                <p>Out of {{ subjects.length }} Subjects</p>
+            </div>
+        </div>
+
+        <div class="stat-card gradient-orange">
+            <div class="stat-header">
+                <span>Average Grade</span>
+                <i class="ri-line-chart-fill"></i>
+            </div>
+            <div class="stat-body">
+                <h4>{{ averageGrade }}%</h4>
+                <p>Mean of weighted raw scores</p>
+            </div>
+        </div>
+
+        <div class="stat-card gradient-purple">
+            <div class="stat-header">
+                <span>Total Assessments</span>
+                <i class="ri-award-line"></i>
+            </div>
+            <div class="stat-body">
+                <h4>{{ totalAssessments }}</h4>
+                <p>Recorded this semester</p>
+            </div>
+        </div>
     </div>
 
-    <div class="stat-card gradient-green">
-      <div class="stat-header">
-        <span>Above Target</span>
-        <i class="ri-donut-chart-line"></i>
-      </div>
-      <div class="stat-body">
-        <h4>{{ aboveTarget }}</h4>
-        <p>Out of {{ subjects.length }} Subjects</p>
-      </div>
+    <div v-else-if="route.name == 'Grades'" class="stats-container">
+        <div class="stat-card gradient-indigo">
+            <div class="stat-header">
+                <span>Overall GPA</span>
+                <i class="ri-donut-chart-line"></i>
+            </div>
+            <div class="stat-body">
+                <h4>{{ overallGPA }}</h4>
+                <p>Transmuted Grade (1.00-5.00)</p>
+            </div>
+        </div>
+
+        <div class="stat-card gradient-purple">
+            <div class="stat-header">
+                <span>Total Assessments</span>
+                <i class="ri-book-open-line"></i>
+            </div>
+            <div class="stat-body">
+                <h4>{{ totalAssessments }}</h4>
+                <p>Recorded this semester</p>
+            </div>
+        </div>
+
+        <div class="stat-card gradient-green">
+            <div class="stat-header">
+                <span>Passing Subjects</span>
+                <i class="ri-calendar-line"></i>
+            </div>
+            <div class="stat-body">
+                <h4>{{ passingSubjects.length }}</h4>
+                <p>Out of {{ subjects.length }} subjects</p>
+            </div>
+        </div>
     </div>
 
-    <div class="stat-card gradient-orange">
-      <div class="stat-header">
-        <span>Average Grade</span>
-        <i class="ri-line-chart-fill"></i>
-      </div>
-      <div class="stat-body">
-        <h4>{{ averageGrade }}%</h4>
-        <p>Across all subjects</p>
-      </div>
+    <div v-else-if="route.name == 'ManageTask'" class="stats-container">
+        <div v-for="task in [
+            { title: 'Total Tasks', value: todoCounts.All, icon: 'ri-list-check-3', color: 'gradient-indigo', note: 'Total items created' },
+            { title: 'Pending', value: todoCounts.Pending, icon: 'ri-history-line', color: 'gradient-orange', note: 'Awaiting completion' },
+            { title: 'Due Today', value: todoCounts.DueToday, icon: 'ri-error-warning-line', color: 'gradient-blue', note: 'Items due today' },
+            { title: 'Overdue', value: todoCounts.Overdue, icon: 'ri-error-warning-line', color: 'gradient-red', note: 'Past due date' },
+            { title: 'Completed', value: todoCounts.Completed, icon: 'ri-checkbox-circle-line', color: 'gradient-green', note: 'Total tasks finished' }
+        ]" :key="task.title" class="stat-card" :class="task.color">
+            <div class="stat-header">
+                <span>{{ task.title }}</span>
+                <i :class="task.icon"></i>
+            </div>
+            <div class="stat-body">
+                <h4>{{ task.value }}</h4>
+                <p v-if="task.note">{{ task.note }}</p>
+            </div>
+        </div>
     </div>
-
-    <div class="stat-card gradient-purple">
-      <div class="stat-header">
-        <span>Total Assessments</span>
-        <i class="ri-award-line"></i>
-      </div>
-      <div class="stat-body">
-        <h4>{{ totalAssessments }}</h4>
-        <p>Recorded this semester</p>
-      </div>
-    </div>
-  </div>
-  <div v-if="route.name == 'Grades'" class="stats-container">
-  <!-- 🎓 Overall GPA -->
-  <div class="stat-card gradient-indigo">
-    <div class="stat-header">
-      <span>Overall GPA</span>
-      <i class="ri-donut-chart-line"></i>
-    </div>
-    <div class="stat-body">
-      <h4>{{ overallGPA4 }}</h4>
-      <p>Currently Tracking</p>
-    </div>
-  </div>
-
-  <!-- 📘 Total Assessments -->
-  <div class="stat-card gradient-purple">
-    <div class="stat-header">
-      <span>Total Assessments</span>
-      <i class="ri-book-open-line"></i>
-    </div>
-    <div class="stat-body">
-      <h4>{{ totalAssessments }}</h4>
-      <p>Recorded this semester</p>
-    </div>
-  </div>
-
-  <!-- 🎯 Targets Met -->
-  <div class="stat-card gradient-green">
-    <div class="stat-header">
-      <span>Targets Met</span>
-      <i class="ri-calendar-line"></i>
-    </div>
-    <div class="stat-body">
-      <h4>{{ aboveTarget }}</h4>
-      <p>Out of {{ subjects.length }} subjects</p>
-    </div>
-  </div>
-
-  <!-- 🏆 Best Subject -->
-  <div class="stat-card gradient-orange">
-    <div class="stat-header">
-      <span>Best Subject</span>
-      <i class="ri-award-line"></i>
-    </div>
-    <div class="stat-body">
-      <h4>
-        {{
-          subjects.length
-            ? Math.max(...subjects.map(s => s.current_grade || 0)) + '%'
-            : '0%'
-        }}
-      </h4>
-      <p>
-        {{
-          subjects.length
-            ? subjects.reduce((best, s) =>
-                (s.current_grade || 0) > (best.current_grade || 0) ? s : best
-              ).name
-            : '-'
-        }}
-      </p>
-    </div>
-  </div>
-  </div>
-  <div v-else-if="route.name == 'ManageTask'" class="stats-container">
-    <div v-for="task in [
-      { title: 'Total Tasks', value: todoCounts.All, icon: 'ri-list-check-3', color: 'gradient-indigo' },
-      { title: 'Pending', value: todoCounts.Pending, icon: 'ri-history-line', color: 'gradient-orange' },
-      { title: 'Due Today', value: todoCounts.DueToday, icon: 'ri-error-warning-line', color: 'gradient-blue' },
-      { title: 'Overdue', value: todoCounts.Overdue, icon: 'ri-error-warning-line', color: 'gradient-red' },
-      { title: 'Completed', value: todoCounts.Completed, icon: 'ri-checkbox-circle-line', color: 'gradient-green' }
-    ]" :key="task.title" class="stat-card" :class="task.color">
-      <div class="stat-header">
-        <span>{{ task.title }}</span>
-        <i :class="task.icon"></i>
-      </div>
-      <div class="stat-body">
-        <h4>{{ task.value }}</h4>
-      </div>
-    </div>
-  </div>
 </template>
 
 <style scoped>
+
+/* (Styles omitted for brevity, assumed unchanged) */
+
 .stats-container {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 1.2rem;
-  margin: 1.5rem auto;
-  padding: 0 1rem;
+
+ display: grid;
+
+ grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+
+ gap: 1.2rem;
+
+ margin: 1.5rem auto;
+
+ padding: 0 1rem;
+
 }
 
-/* ✨ Modern Stat Card */
+/* ... rest of your styles ... */
+
 .stat-card {
-  color: #fff;
-  border-radius: 16px;
-  padding: 1.5rem;
-  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.08);
-  transition: transform 0.25s ease, box-shadow 0.25s ease;
-  cursor: default;
+
+ color: #fff;
+
+ border-radius: 16px;
+
+ padding: 1.5rem;
+
+ box-shadow: 0 10px 20px rgba(0, 0, 0, 0.08);
+
+ transition: transform 0.25s ease, box-shadow 0.25s ease;
+
+ cursor: default;
+
 }
 
 .stat-card:hover {
-  transform: translateY(-6px);
-  box-shadow: 0 15px 25px rgba(0, 0, 0, 0.15);
+
+ transform: translateY(-6px);
+
+ box-shadow: 0 15px 25px rgba(0, 0, 0, 0.15);
+
 }
 
 .stat-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-weight: 600;
-  font-size: 1rem;
+
+ display: flex;
+
+ justify-content: space-between;
+
+ align-items: center;
+
+ font-weight: 600;
+
+ font-size: 1rem;
+
 }
 
 .stat-header i {
-  font-size: 1.6rem;
-  opacity: 0.9;
+
+ font-size: 1.6rem;
+
+ opacity: 0.9;
+
 }
 
 .stat-body {
-  margin-top: 1rem;
+
+ margin-top: 1rem;
+
 }
 
 .stat-body h4 {
-  font-size: 2rem;
-  font-weight: 700;
-  margin-bottom: 0.3rem;
+
+ font-size: 2rem;
+
+ font-weight: 700;
+
+ margin-bottom: 0.3rem;
+
 }
 
 .stat-body p {
-  font-size: 0.9rem;
-  opacity: 0.85;
+
+ font-size: 0.9rem;
+
+ opacity: 0.85;
+
 }
 
-/* 🌈 Gradients */
 .gradient-indigo { background: linear-gradient(135deg, #6366f1, #3b82f6); }
-.gradient-purple { background: linear-gradient(135deg, #a855f7, #ec4899); }
-.gradient-green { background: linear-gradient(135deg, #22c55e, #10b981); }
-.gradient-orange { background: linear-gradient(135deg, #f59e0b, #f97316); }
-.gradient-blue { background: linear-gradient(135deg, #3b82f6, #06b6d4); }
-.gradient-red { background: linear-gradient(135deg, #ef4444, #f43f5e); }
-</style>
 
+.gradient-purple { background: linear-gradient(135deg, #a855f7, #ec4899); }
+
+.gradient-green { background: linear-gradient(135deg, #22c55e, #10b981); }
+
+.gradient-orange { background: linear-gradient(135deg, #f59e0b, #f97316); }
+
+.gradient-blue { background: linear-gradient(135deg, #3b82f6, #06b6d4); }
+
+.gradient-red { background: linear-gradient(135deg, #ef4444, #f43f5e); }
+
+</style>

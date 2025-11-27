@@ -7,13 +7,12 @@ use Illuminate\Http\Request;
 
 class TodoController extends Controller
 {
-    // List all todos for logged-in user
+
     public function index(Request $request)
     {
         return $request->user()->todos()->with('subject')->get();
     }
 
-    // Store new todo
     public function store(Request $request)
     {
         $request->validate([

@@ -1,58 +1,103 @@
 <template>
   <div class="container pb-5">
+
     <section class="mb-5">
-      <h2 class="fw-bold mb-5 text-primary">About the App</h2>
+      <h2 class="fw-bold mb-5 text-primary">About the Application 🎓</h2>
       <p class="text-muted">
-      <span class="fs-4 fw-lighter">✅ About the Grade Tracker App</span> <br> <br>
-      The Grade Tracker App is a user-friendly academic monitoring system designed to help students easily record,
-      calculate, and track their grades across different subjects.
-      It provides a centralized platform where users can view their performance,
-      monitor progress, and stay updated with their academic standing throughout the semester.
-      This application aims to remove the manual hassle of computing grades by
-      automatically generating results based on predefined criteria. With its intuitive interface and organized structure, students can focus more on improving their performance instead of dealing with confusing grade calculations.
-      <br><br>
-      <span class="fs-4 fw-lighter">✅ Key Features</span> <br> <br>
-        <span class="fs-5 text-black">
-          <ul v-for="key_features in features" :key="key_features.description">
-            <li>{{ key_features.description }}</li>
-          </ul>
-        </span>
+        <span class="fs-4 fw-medium text-dark">Grade Tracker: Your Academic Compass 🧭</span> <br> <br>
+        The Grade Tracker App is a centralized academic monitoring system developed as a Capstone Project for students of ACLC College of Mandaue. Its core mission is to replace complex manual computations with an accurate, automated platform for recording and tracking semester grades.
+        <br><br>
+        It strictly adheres to the official ACLC grading criteria (60% F2F / 40% Online) and uses the standard grade transmutation scale (1.00 - 5.00). By providing instant, error-free results, the application empowers students to focus their efforts on improving performance rather than wrestling with calculation uncertainties.
+        <br><br>
+        <span class="fs-4 fw-medium text-dark">Key Features ✨</span> <br> <br>
+        <div class="row g-3">
+          <div class="col-12 col-md-6" v-for="key_features in features" :key="key_features.description">
+            <div class="d-flex align-items-start">
+              <i class="ri-check-line text-success fs-5 me-2"></i>
+              <p class="fs-6 text-black mb-0">{{ key_features.description }}</p>
+            </div>
+          </div>
+        </div>
+      </p>
+    </section>
+    <section class="mb-5">
+      <h2 class="fw-bold mb-3 text-primary">ACLC Grading System Breakdown ⚖️</h2>
+      <p class="text-muted">
+        The system uses a weighted formula to calculate the Overall Quarter Percentage for each subject before applying the 1.00 - 5.00 transmutation:
+      </p>
+      <div class="p-4 rounded-4 border border-primary bg-light shadow-lg">
+        <h5 class="fw-bold text-primary mb-4">Quarter Score Calculation (60% F2F + 40% Online)</h5>
+
+        <div class="row g-4 justify-content-center align-items-stretch">
+
+          <div class="col-12 col-md-5">
+            <div class="p-4 bg-white rounded-3 h-100 shadow-sm border border-primary-subtle">
+              <p class="small text-muted mb-1 fw-medium text-uppercase">Face-to-Face Average</p>
+              <p class="fw-bold text-dark fs-3 mb-0">
+                  $$\overline{\text{F2F}} \times 60\%$$
+              </p>
+            </div>
+          </div>
+
+          <div class="col-12 col-md-2 d-flex justify-content-center align-items-center">
+            <i class="ri-add-line fs-2 fw-bold text-primary"></i>
+          </div>
+
+          <div class="col-12 col-md-5">
+            <div class="p-4 bg-white rounded-3 h-100 shadow-sm border border-success-subtle">
+              <p class="small text-muted mb-1 fw-medium text-uppercase">Online Average</p>
+              <p class="fw-bold text-dark fs-3 mb-0">
+                  $$\overline{\text{Online}} \times 40\%$$
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="text-center my-4">
+            <i class="ri-arrow-down-line fs-4 text-primary"></i>
+        </div>
+
+        <div class="p-3 bg-primary text-white rounded-3 shadow-lg text-center">
+            <p class="text-uppercase fw-light mb-1 small opacity-75">Resulting Overall Quarter Raw Percentage</p>
+            <p class="fw-bold fs-4 mb-0">
+                $$\mathbf{\text{Overall Score}} = \mathbf{60\%} \mathbf{\text{F2F}} + \mathbf{40\%} \mathbf{\text{Online}}$$
+            </p>
+        </div>
+      </div>
+      <p class="mt-3 small text-secondary">
+        Note: The average scores ($\overline{\text{F2F}}$ and $\overline{\text{Online}}$) are derived from the overall performance across all four activity types (Quiz, Exam, Assignment, Project) within the quarter.
       </p>
     </section>
 
-    <!-- Who Developed -->
+
     <section class="mb-5">
-      <h2 class="fw-bold mb-3 text-primary">Who Developed?</h2>
+      <h2 class="fw-bold mb-3 text-primary">Who Developed? 🧑‍💻</h2>
       <p class="text-muted">
-        Provide a brief explanation of who developed the system or what team/organization
-        created the application.
+        This Grade Tracker App was conceptualized, designed, and implemented by the Capstone Research Group from ACLC College of Mandaue, BS Information Technology. The development phase spanned from [Start Date] to [End Date], focusing on creating a robust and accurate academic utility for the student body as part of our thesis requirement.
       </p>
     </section>
 
-    <!-- Team -->
     <section class="mb-5">
-      <h2 class="fw-bold mb-3 text-primary">Team</h2>
+      <h2 class="fw-bold mb-3 text-primary">Development Team 👨‍🎓</h2>
       <div class="row g-3">
         <div class="col-md-4" v-for="member in team" :key="member.name">
-          <div class="card h-100 shadow-sm">
+          <div class="card h-100 shadow-sm border-0">
             <div class="card-body">
-              <h5 class="card-title fw-bold">{{ member.name }}</h5>
-              <p class="card-text text-muted">{{ member.role }}</p>
+              <h5 class="card-title fw-bold text-dark">{{ member.name }}</h5>
+              <p class="card-text text-primary fw-medium small">{{ member.role }}</p>
             </div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- Vision -->
     <section>
-      <h2 class="fw-bold mb-3 text-primary">Vision</h2>
+      <h2 class="fw-bold mb-3 text-primary">Vision & Goal 🚀</h2>
       <p class="text-muted">
-        State your application's long-term goals and the impact you want it to achieve.
+        To be the leading automated academic monitoring tool at ACLC College of Mandaue, ensuring every student has immediate, accurate, and transparent access to their performance metrics, thereby fostering a proactive and self-directed approach to academic success throughout their academic journey.
       </p>
     </section>
   </div>
-
 </template>
 
 <script setup>
@@ -69,35 +114,38 @@ const team = [
 
 const features = [
   {
-    description: "Subject & Assessment Management – Add, view, edit, and manage subjects easily."
+    description: "Accurate Grade Computation based on ACLC's 60% F2F and 40% Online weightage criteria."
   },
   {
-    description: "Automated Grade Computation – Calculates grades instantly based on user inputs."
+    description: "Automated Transmutation to the official 1.00 - 5.00 grade scale."
   },
   {
-    description: "Progress Overview Dashboard – Shows GPA, performance trends, and upcoming assessments."
+    description: "Centralized Subject & Assessment Management (Add, view, edit, and manage records)."
   },
   {
-    description: "Secure User Accounts – Ensures that grade data is protected."
+    description: "Comprehensive Performance Dashboard showing GWA, quarter averages, and trend analyses."
   },
   {
-    description: "Responsive Design – Works smoothly across devices using Vue and Bootstrap."
+    description: "Responsive Design and Secure User Authentication for data protection."
   },
 ];
-
 </script>
 
 <style scoped>
+/* Minor adjustments to h2 for a cleaner line */
 h2 {
-border-left: 4px solid #0d6efd;
-padding-left: 10px;
+border-left: 5px solid #0d6efd;
+padding-left: 12px;
 }
-.card { transition: all 0.35s ease; }
+.card {
+    transition: all 0.35s ease;
+    border: none; /* Make cards borderless for a cleaner look */
+}
 
-
+/* Enhanced hover effect */
 .card:hover {
 transform: translateY(-8px);
 transition: 0.3s ease;
-box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+box-shadow: 0 10px 25px rgba(0,0,0,0.1); /* Slightly heavier shadow */
 }
 </style>

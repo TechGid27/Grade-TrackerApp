@@ -10,10 +10,9 @@ class Subject extends Model
     use HasFactory;
 
     protected $fillable = [
-        'name',
-        'color',
-        'target_grade',
-        'user_id', 
+        'user_id',
+        'subject_name',
+        'color'
     ];
 
     // A subject belongs to a user

@@ -37,8 +37,6 @@ const upcomingTasks = computed(() => {
     }));
 });
 
-// Progress width per subject
-const progressWidth = grade => `${Math.min(grade, 100)}%`;
 </script>
 
 <template>
@@ -53,7 +51,6 @@ const progressWidth = grade => `${Math.min(grade, 100)}%`;
 
   <div v-else class="container py-4 px-3 mt-3">
     <div class="row g-4">
-      <!-- 🧮 Subject Performance -->
       <div class="col-lg-8 col-md-7">
         <div class="card border-0 shadow-sm rounded-4">
           <div class="card-body px-4 py-4">
@@ -74,26 +71,11 @@ const progressWidth = grade => `${Math.min(grade, 100)}%`;
                   style="height: 30px; width: 30px"
                 ></div>
                 <div>
-                  <h6 class="mb-0 fw-semibold">{{ subject.name }}</h6>
+                  <h6 class="mb-0 fw-semibold">{{ subject.subject_name }}</h6>
                   <small class="text-muted"
                     >{{ subject.assessments_count }} assessments</small
                   >
                 </div>
-              </div>
-
-              <div class="flex-grow-1 mx-4">
-                <div class="progress" style="height: 10px">
-                  <div
-                    class="progress-bar bg-primary"
-                    role="progressbar"
-                    :style="{ width: progressWidth(subject.current_grade) }"
-                  ></div>
-                </div>
-              </div>
-
-              <div class="text-end">
-                <h6 class="mb-0">{{ subject.current_grade }}%</h6>
-                <small class="text-muted">Target: {{ subject.target_grade }}%</small>
               </div>
             </div>
           </div>

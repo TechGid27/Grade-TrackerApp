@@ -11,12 +11,10 @@ return new class extends Migration
        Schema::create('subjects', function (Blueprint $table) {
             $table->id();
             $table->foreignId('user_id')->constrained('users')->onDelete('cascade'); // 🔑 Track owner
-            $table->string('name');
+            $table->string('subject_name');
             $table->string('color')->nullable();
-            $table->decimal('target_grade', 5, 2)->nullable();
             $table->timestamps();
         });
-
     }
 
     public function down()

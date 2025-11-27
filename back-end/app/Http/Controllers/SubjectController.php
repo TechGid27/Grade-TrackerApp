@@ -10,51 +10,40 @@ use Illuminate\Validation\Rule;
 class SubjectController extends Controller
 {
 
-   public function index(Request $request)
+    public function index(Request $request)
     {
-        $subjects = $request->user()
+        // Eager load the 'assessments' relationship for each subject.
+        // This assumes you have an 'assessments' method defined in your Subject model.
+        $all_subject = $request->user()
             ->subjects()
-            ->withCount('assessments')
-            ->with(['assessments' => function ($query) {
-                $query->select('id','name','type', 'subject_id', 'grade', 'max_grade', 'weight','date_taken');
-            }])
-            ->get()
-            ->map(function ($subject) {
-                $totalWeighted = 0;
-                $totalWeight = 0;
-
-                foreach ($subject->assessments as $assessment) {
-                    $percentage = ($assessment->grade / $assessment->max_grade) * 100;
-                    $totalWeighted += $percentage * ($assessment->weight ?? 1);
-                    $totalWeight += ($assessment->weight ?? 1);
+            ->with([
+                'assessments' => function ($query) {
+                    // Optional: You can filter/order the assessments here if needed, 
+                    // e.g., only include assessments for the current quarter.
+                    $query->orderBy('date_taken', 'desc');
                 }
+            ])
+            ->get();
 
-                $subject->current_grade = $totalWeight > 0
-                    ? round($totalWeighted / $totalWeight, 2)
-                    : 0;
-
-                return $subject;
-            });
-
-        return response()->json([
-            'subjects' => $subjects,
-            'total_subjects' => $subjects->count(),
-        ]);
+        if ($all_subject->isNotEmpty()) {
+            // The resulting JSON will now have an 'assessments' array nested inside each subject object.
+            return response()->json([
+                'All subjects' => $all_subject,
+            ]);
+        } else {
+            return response()->json([
+                'message' => 'No subjects found',
+            ]);
+        }
     }
 
-   public function store(Request $request)
+
+
+    public function store(Request $request)
     {
         $validated = $request->validate([
-            'name' => [
-                'required',
-                'string',
-                'max:255',
-                Rule::unique('subjects')->where(function ($query) use ($request) {
-                    return $query->where('user_id', $request->user()->id);
-                }),
-            ],
-            'color' => 'nullable|string',
-            'target_grade' => 'nullable|numeric',
+            'subject_name' => 'required|string|max:50',
+            'color' => 'nullable|string|max:50',
         ]);
 
         $subject = $request->user()->subjects()->create($validated);
@@ -64,11 +53,13 @@ class SubjectController extends Controller
             'subject' => $subject
         ], 201);
     }
-    public function show(Request $request, $name)
+
+
+    public function show(Request $request, $subject_name)
     {
 
         $subject = $request->user()->subjects()
-        ->Where('name', 'like', '%'. $name . '%')
+        ->Where('subject_name', 'like', '%'. $subject_name . '%')
         ->get();
 
         if (!$subject) {
@@ -78,29 +69,29 @@ class SubjectController extends Controller
         return response()->json($subject);
     }
 
-    public function update(Request $request, $id)
-    {
-        $subject = $request->user()->subjects()->find($id);
+    // public function update(Request $request, $id)
+    // {
+    //     $subject = $request->user()->subjects()->find($id);
 
-        if (!$subject) {
-            return response()->json(['message' => 'Subject not found'], 404);
-        }
+    //     if (!$subject) {
+    //         return response()->json(['message' => 'Subject not found'], 404);
+    //     }
 
-        $validated = $request->validate([
-            'name' => 'sometimes|string|max:255',
-            'color' => 'nullable|string',
-            'target_grade' => 'nullable|numeric',
-        ]);
+    //     $validated = $request->validate([
+    //         'name' => 'sometimes|string|max:255',
+    //         'color' => 'nullable|string',
+    //         'target_grade' => 'nullable|numeric',
+    //     ]);
 
-        $subject->update($validated);
+    //     $subject->update($validated);
 
-        return response()->json([
-            'message' => 'Subject updated successfully',
-            'subject' => $subject
-        ]);
-    }
+    //     return response()->json([
+    //         'message' => 'Subject updated successfully',
+    //         'subject' => $subject
+    //     ]);
+    // }
 
-    // Delete a subject
+    // // Delete a subject
     public function destroy(Request $request, $id)
     {
         $subject = $request->user()->subjects()->find($id);
