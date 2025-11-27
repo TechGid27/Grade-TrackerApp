@@ -69,10 +69,6 @@ Version Control: Git + GitHub
 Web Developer • Passionate about full-stack web development and building smart tools for students.
 🌐 https://gideon-26e30.web.app
 
-------------------------------------------------------------
-📜 License
-
-This project is open-source and available under the MIT License.
 
 ------------------------------------------------------------
 🧾 Notes
